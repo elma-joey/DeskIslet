@@ -77,6 +77,8 @@
   "System cast panel": "系统投屏面板",
   "User": "用户",
   "Search apps and folders": "搜索应用和文件夹",
+  "Search apps, folders and zone files": "搜索应用、文件夹和分区文件",
+  "No matching items": "没有找到匹配的项目",
   "Back": "返回",
   "All apps": "全部应用",
   "Nothing is pinned yet. Right-click an app in the search results or All apps to pin it.": "还没有固定的应用。右键单击搜索结果或“全部应用”里的应用来固定",

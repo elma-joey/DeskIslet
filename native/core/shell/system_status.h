@@ -11,6 +11,8 @@
 namespace atrium {
 
 struct SystemStatus {
+    int cpuPercent = -1;
+    int memoryPercent = -1;
     bool battery = false;   // a system battery is present
     int batteryPercent = -1;
     bool charging = false;  // on mains power

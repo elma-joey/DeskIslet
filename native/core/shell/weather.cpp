@@ -325,7 +325,7 @@ std::wstring WeatherCachePath()
     return path.substr(0, path.find_last_of(L'\\')) + L"\\weather.json";
 }
 
-WeatherSource::WeatherSource(HWND notify, UINT message) : notify_(notify), message_(message)
+WeatherSource::WeatherSource(HWND notify, UINT message) : notify_(notify), message_(message), cachePath_(WeatherCachePath())
 {
     // The last forecast at once (stale is better than nothing while the first fetch runs).
     json::JsonObject o{nullptr};
@@ -366,6 +366,30 @@ void WeatherSource::Refresh()
     wake_.notify_all();
 }
 
+void WeatherSource::SetLocation(std::wstring city, double lat, double lon, const std::wstring& manualCache)
+{
+    if (!std::isfinite(lat) || !std::isfinite(lon) || std::abs(lat) > 90 || std::abs(lon) > 180) return;
+    {
+        std::lock_guard g(lock_);
+        if (city_ == city && latitude_ == lat && longitude_ == lon) return;
+        city_ = std::move(city);
+        latitude_ = lat;
+        longitude_ = lon;
+        ++locationVersion_;
+        dirty_ = true;
+        cachePath_ = city_.empty() ? WeatherCachePath() : manualCache;
+        latest_ = {};
+        json::JsonObject cached{nullptr};
+        if (json::JsonObject::TryParse(ReadTextFile(cachePath_), cached)) FromJson(cached, latest_);
+        if (!city_.empty()) {
+            if (!latest_.placed || std::abs(latest_.lat - lat) > 0.0001 || std::abs(latest_.lon - lon) > 0.0001) latest_ = {};
+            latest_.city = city_;
+        }
+    }
+    wake_.notify_all();
+    PostMessageW(notify_, message_, 0, 0);
+}
+
 Weather WeatherSource::Latest()
 {
     std::lock_guard g(lock_);
@@ -404,8 +428,17 @@ bool WeatherSource::Fetch()
 {
     double lat = 0, lon = 0;
     std::wstring city;
-    if (!Locate(lat, lon, city)) {
+    unsigned long long version;
+    {
         std::lock_guard g(lock_);
+        version = locationVersion_;
+        city = city_;
+        lat = latitude_;
+        lon = longitude_;
+    }
+    if (city.empty() && !Locate(lat, lon, city)) {
+        std::lock_guard g(lock_);
+        if (version != locationVersion_) return false;
         if (!latest_.placed) {
             latest_.ok = latest_.ok && !latest_.hours.empty();
             latest_.error = Tr(L"Location unavailable");
@@ -427,6 +460,7 @@ bool WeatherSource::Fetch()
                lat, lon);
     if (!Parse(GetAny(url), o) || !o.HasKey(L"current") || !o.HasKey(L"hourly") || !o.HasKey(L"daily")) {
         std::lock_guard g(lock_);
+        if (version != locationVersion_) return false;
         latest_.error = Tr(L"Weather unavailable");
         Log(L"weather: no forecast for %s", city.c_str());
         return false;
@@ -505,9 +539,10 @@ bool WeatherSource::Fetch()
     w.hi = w.days[0].hi;
     w.lo = w.days[0].lo;
     w.ok = true;
-    WriteTextFile(WeatherCachePath(), std::wstring(ToJson(w).Stringify()));
-    Log(L"weather: %s %.0f° %s", w.city.c_str(), w.temp, WeatherCondition(w.code).c_str());
     std::lock_guard g(lock_);
+    if (version != locationVersion_) return false;
+    WriteTextFile(cachePath_, std::wstring(ToJson(w).Stringify()));
+    Log(L"weather: %s %.0f° %s", w.city.c_str(), w.temp, WeatherCondition(w.code).c_str());
     latest_ = std::move(w);
     return true;
 }

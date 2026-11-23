@@ -119,8 +119,22 @@ void SystemStatusReader::Run()
     HANDLE events[] = {quit_, wake_};
     std::wstring watched;
     bool watching = false;
+    uint64_t previousIdle = 0, previousTotal = 0;
+    int cpuPercent = -1;
     while (WaitForMultipleObjects(2, events, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
         auto status = std::make_unique<SystemStatus>(QuerySystemStatus());
+        FILETIME idle{}, kernel{}, user{};
+        if (GetSystemTimes(&idle, &kernel, &user)) {
+            auto ticks = [](FILETIME f) { return (uint64_t(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
+            const uint64_t idleNow = ticks(idle), total = ticks(kernel) + ticks(user);
+            if (previousTotal && total > previousTotal && idleNow >= previousIdle) {
+                double busy = 1.0 - double(idleNow - previousIdle) / double(total - previousTotal);
+                cpuPercent = int(std::lround(std::clamp(busy, 0.0, 1.0) * 100));
+            }
+            previousIdle = idleNow;
+            previousTotal = total;
+            status->cpuPercent = cpuPercent;
+        }
         if (!watching || status->audioDevice != watched) {
             WatchVolume(notify_, volumeMessage_);
             watched = status->audioDevice;
@@ -141,6 +155,9 @@ void SystemStatusReader::Run()
 SystemStatus QuerySystemStatus()
 {
     SystemStatus s;
+    MEMORYSTATUSEX memory{sizeof(memory)};
+    if (GlobalMemoryStatusEx(&memory))
+        s.memoryPercent = int(memory.dwMemoryLoad);
     SYSTEM_POWER_STATUS ps{};
     if (GetSystemPowerStatus(&ps)) {
         // 128: no system battery; 255: unknown.

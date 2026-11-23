@@ -41,6 +41,7 @@ constexpr wchar_t kVisualClass[] = L"AtriumBarVisual";
 constexpr wchar_t kInputClass[] = L"AtriumBarInput";
 constexpr wchar_t kClockKey[] = L"#clock";
 constexpr wchar_t kStartKey[] = L"#start";
+constexpr wchar_t kRecordKey[] = L"#record";
 constexpr wchar_t kNotifyKey[] = L"#notify";
 constexpr wchar_t kTrayKey[] = L"#tray";
 constexpr wchar_t kStatusKey[] = L"#status";
@@ -254,6 +255,7 @@ struct BarDropTarget : winrt::implements<BarDropTarget, IDropTarget> {
 
     DWORD Effect(POINTL pt)
     {
+        if (!files) return DROPEFFECT_NONE;
         std::wstring key = bar->FileDragOver(POINT{pt.x, pt.y});
         return files && !key.empty() && bar->canOpenFiles && bar->canOpenFiles(key) ? DROPEFFECT_COPY : DROPEFFECT_NONE;
     }
@@ -596,7 +598,7 @@ LRESULT Bar::OnInput(HWND h, UINT m, WPARAM w, LPARAM l)
         }
         if (w == kFileHoverTimer) {
             KillTimer(h, kFileHoverTimer);
-            if (!fileHoverKey_.empty() && !IsEntry(fileHoverKey_) && onFileDragHover)
+            if (!fileHoverKey_.empty() && onFileDragHover)
                 onFileDragHover(fileHoverKey_);
             return 0;
         }
@@ -688,6 +690,8 @@ LRESULT Bar::OnInput(HWND h, UINT m, WPARAM w, LPARAM l)
                 onClockClick();
             else if (key == kStartKey && onStartClick)
                 onStartClick(anchor);
+            else if (key == kRecordKey && onRecordClick)
+                onRecordClick(anchor);
             else if (key == kNotifyKey && onNotifyClick)
                 onNotifyClick(anchor);
             else if (key == kTrayKey && onTrayClick)
@@ -815,7 +819,7 @@ std::wstring Bar::FileDragOver(POINT screen)
     onInteract();
     POINT pt{screen.x - window_.left, screen.y - window_.top};
     std::wstring key = HitTest(pt);
-    if (IsEntry(key))
+    if (IsEntry(key) && key != kStartKey)
         key.clear();
     if (key != fileHoverKey_) {
         fileHoverKey_ = key;
@@ -1006,7 +1010,8 @@ void Bar::Relayout()
     const int statusExtra = st.statusStyle == L"icons" ? int(std::lround(icon * 1.3f)) : 0;
     // Show Desktop: a narrow slot at the bar's right end, a thin line in it, as the system taskbar's.
     const int deskW = showDesktop ? std::max(Px(10, s), int(std::lround(icon * 0.45))) : 0;
-    const int rightCount = int(showTray) + int(showStatus) + int(showNotifications) + int(clockW != 0) + int(showDesktop);
+    const int usageW = showRight ? Px(63, s) : 0;
+    const int rightCount = int(showTray) + int(showStatus) + int(showNotifications) + int(clockW != 0) + int(showDesktop) + 2 * int(showRight);
     const int groupGap = rightCount ? sepGap : 0;
     const int total = int(items_.size());
     int n = total;
@@ -1017,8 +1022,8 @@ void Bar::Relayout()
         int w = 2 * padFor(p) + p + 2 * g;               // logo and the air after it
         w += slots ? slots * p + (slots - 1) * g : 0;    // apps
         if (rightCount)
-            w += 2 * sepGap + p * (int(showTray) + int(showStatus) + int(showNotifications)) + (showStatus ? statusExtra : 0) + clockW +
-                 deskW + (rightCount - 1) * g;
+            w += 2 * sepGap + p * (int(showRight) + int(showTray) + int(showStatus) + int(showNotifications)) + (showStatus ? statusExtra : 0) + clockW +
+                 usageW + deskW + (rightCount - 1) * g;
         return std::max(w, barH * 2);
     };
     // The magnified bar stretches by up to (mag - 1) * range on top of its width.
@@ -1157,8 +1162,10 @@ void Bar::Relayout()
     const int deskLeft = rightSlot(deskW, showDesktop);
     const int bellLeft = rightSlot(plate, showNotifications);
     const int clockLeft = rightSlot(clockW, clockW != 0), clockRight = clockLeft + clockW;
+    const int usageLeft = rightSlot(usageW, showRight);
     const int statusLeft = rightSlot(statusW, showStatus), statusRight = statusLeft + statusW;
     const int trayLeft = rightSlot(plate, showTray);
+    const int recordLeft = rightSlot(plate, showRight);
     const int rightLeft = rightCount ? cursor + gap : insetX + barW - pad;
     const int appsMin = startLeft + plate + 2 * gap;
     const int slots = n + (more ? 1 : 0);
@@ -1219,6 +1226,16 @@ void Bar::Relayout()
     gap_ = gap;
     shown_ = n;
     scene.separatorX = rightCount ? float(rightLeft - sepGap) : -1;
+    if (showRight) {
+        auto usage = entry(L"#usage", usageLeft, L"");
+        auto record = entry(kRecordKey, recordLeft, L"");
+        record.active = recording_;
+        scene.extras.push_back(std::move(record));
+        hits_.push_back({kRecordKey, RECT{recordLeft - gap / 2, hitTop, recordLeft + plate + gap / 2, hitBottom}});
+        usage.plate.right = usage.plate.left + float(usageW);
+        usage.icon = usage.plate;
+        scene.extras.push_back(std::move(usage));
+    }
     if (showTray) {
         scene.extras.push_back(entry(kTrayKey, trayLeft, L"\uE70E"));
         hits_.push_back({kTrayKey, RECT{trayLeft - gap / 2, hitTop, trayLeft + plate + gap / 2, hitBottom}});
@@ -1681,6 +1698,13 @@ void Bar::SetUnread(int count)
     Relayout();
 }
 
+void Bar::SetRecording(bool active)
+{
+    if (recording_ == active) return;
+    recording_ = active;
+    Relayout();
+}
+
 RECT Bar::EntryRect(const std::wstring& key) const
 {
     auto rect = [&](const SceneItem& it) {
@@ -1709,6 +1733,8 @@ RECT Bar::BarRect() const
 
 std::wstring Bar::TooltipText(const std::wstring& key) const
 {
+    if (key == kRecordKey)
+        return recording_ ? L"停止录制并保存" : L"屏幕录制";
     if (key == kStartKey)
         return Tr(L"Start");
     if (key == kNotifyKey)

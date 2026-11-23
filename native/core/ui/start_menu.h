@@ -14,7 +14,7 @@
 // size inside it. Typing searches all apps and folders, by name or by
 // initials ("wx" for 微信); the button next to the field lists them all from
 // A to Z, with the letters down the left to jump through the list.
-// No recommendations, recent files or file search. Tiles lift under the
+// Search also includes items in the organizer's file zones. Tiles lift under the
 // pointer, presses ripple.
 #pragma once
 
@@ -34,6 +34,9 @@
 
 namespace atrium {
 
+class DesktopWidgets;
+struct ZoneSearchItem;
+
 class StartMenu {
 public:
     StartMenu(HINSTANCE instance, TaskModel& tasks, AppCatalog& catalog);
@@ -47,6 +50,7 @@ public:
     ULONGLONG LastClosed() const { return lastClosed_; }
     void Refresh(); // an icon or the catalog changed
     void SetStatus(const SystemStatus& status);
+    void AttachZones(DesktopWidgets& zones);
     static int TileIconPx(float scale); // the largest icon size (AppCatalog::PrefetchStartIcons); every size draws from it
     int IconPx() const;                 // the same, in pixels on this monitor: what an icon is read at
     HWND Hwnd() const { return surface_.Hwnd(); }
@@ -92,6 +96,7 @@ private:
         wchar_t letter = 0; // a heading of the list (no app)
         int folder = -1;    // a folder: its tile
         CatalogApp app;
+        std::shared_ptr<const ZoneSearchItem> zoneFile;
     };
     // A tile carried by the pointer: from the grid, or out of the open folder.
     struct Drag {
@@ -111,6 +116,12 @@ private:
     };
 
     void Paint(Canvas& c);
+    void PaintZones(Canvas& c, const Theme& t);
+    std::wstring ZoneAt(POINT client) const;
+    DesktopWidgets* zones_ = nullptr;
+    std::map<std::wstring, int> firstZoneFile_;
+    std::vector<Hit> zoneCards_;
+    int zonePage_ = 0;
     void PaintSearch(Canvas& c, const Theme& t);
     void PaintTiles(Canvas& c, const Theme& t, float shown);
     // A tile in `cell`: its icon (a folder: its first apps, small) and name. target: a carried app would go into it.
@@ -129,7 +140,8 @@ private:
     // The tiles, the rows.
     void Rebuild();
     void SyncWindowsPins();            // tiles_ from the layout (or the Windows pins) and the catalog
-    std::vector<Row> Results() const; // search matches, best first
+    std::vector<Row> Results(); // search matches, best first
+    unsigned long long searchVersion_ = 0;
     std::vector<Row> AllApps() const; // the A-Z list with its headings
     int PerPage() const { return cols_ * rows_; }
     int Pages() const;

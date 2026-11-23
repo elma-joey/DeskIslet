@@ -24,7 +24,7 @@ atrium_shader(glass.hlsl ps_5_0 PS g_GlassPS glass_ps.h)
 atrium_shader(compare.hlsl cs_5_0 CS g_CompareCS compare_cs.h)
 atrium_shader(backdrop_edge.hlsl ps_5_0 PS g_BackdropEdgePS backdrop_edge_ps.h)
 
-add_executable(atrium_core WIN32
+add_library(atrium_core SHARED
     main.cpp
     bar.cpp
     near_hover.cpp
@@ -82,10 +82,9 @@ add_executable(atrium_core WIN32
     render/gpu.cpp
     render/wifi_glyph.cpp
     core.rc
-    core.manifest
     ${shader_headers})
 # build/win-x64/<Config>/Atrium.exe
-set_target_properties(atrium_core PROPERTIES OUTPUT_NAME "Atrium" RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set_target_properties(atrium_core PROPERTIES OUTPUT_NAME "Deskfold.Core" RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 target_include_directories(atrium_core PRIVATE ${shader_out})
 # The interface face (D40) next to the exe, as in the package.
 set(ui_fonts MiSans-Medium.otf MiSans-Demibold.otf MiSans-Semibold.otf)

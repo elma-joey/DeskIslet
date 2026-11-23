@@ -66,6 +66,7 @@ public:
     bool Visible() const { return visible_; }
     // Unread notifications, shown as a badge on the bell.
     void SetUnread(int count);
+    void SetRecording(bool active);
     // Network, battery and volume for the status icon.
     void SetStatus(const SystemStatus& status);
     // The app at `index` (0-based, in bar order) as a click on it would (Win + digit).
@@ -93,6 +94,7 @@ public:
     std::function<void()> onClockClick;
     // Bar entries; `anchor` is the entry's rectangle on screen (popups open above it).
     std::function<void(RECT anchor)> onStartClick;  // the Atrium logo
+    std::function<void(RECT anchor)> onRecordClick;
     std::function<void(RECT anchor)> onNotifyClick; // the notification bell
     std::function<void(RECT anchor)> onTrayClick;   // the tray entry (Atrium's tray panel)
     std::function<void()> onDesktopClick;           // the Show Desktop slot at the bar's right end
@@ -217,6 +219,7 @@ private:
     int appsLeft_ = 0, pitch_ = 1, plate_ = 0, gap_ = 0, shown_ = 0;
     std::vector<std::wstring> hidden_; // apps behind the overflow entry
     int unread_ = 0;
+    bool recording_ = false;
     SystemStatus status_;
     bool belowTray_ = false;   // yielded to the system taskbar the user is using
     bool trayHeldUp_ = false;  // the system taskbar is up without the user (logged once)

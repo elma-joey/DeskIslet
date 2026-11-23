@@ -13,11 +13,17 @@
 #include "ui/widget_faces.h"
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace atrium {
+
+struct ZoneSearchItem {
+    std::wstring zone;
+    WidgetContent::File file;
+};
 
 class DesktopWidgets {
 public:
@@ -34,6 +40,17 @@ public:
     void SetMaterial(WidgetMaterial material);
     // A language change: the weather's labels are fetched, so fetch them again and repaint.
     void ReloadLanguage();
+    void ShowFileManager() { FileAction(L"advanced"); }
+    void SyncFileZones();
+    const auto& SearchItems() const { return searchItems_; }
+    unsigned long long ZoneVersion() const { return viewVersion_; }
+    std::map<std::wstring, WidgetContent> menuZones;
+    const auto& MenuZoneOrder() const { return menuZoneOrder_; }
+    bool FileAction(const std::wstring& action, const std::wstring& zone = {}, const std::wstring& path = {});
+    void FileMenu(HWND owner, std::wstring zone, WidgetContent::File file);
+    bool ShellMenuMessage(UINT m, WPARAM w, LPARAM l, LRESULT& result);
+    void AttachMenuDrop(HWND hwnd, std::function<std::wstring(POINT)> zoneAt);
+    static void DragFile(HWND owner, const std::wstring& path);
     // Adds a widget in the first free place; false when there is no room.
     bool Add(WidgetKind kind, WidgetSize size);
     // The same by name ("clock", "medium"; the settings app's gallery).
@@ -73,12 +90,27 @@ private:
     void Glide();
     void Restack();
     void Tick();
+    void SyncWeatherCity();
+    void SyncQuota();
+    bool AddQuota();
+    bool quotaIntroduced_ = false;
+    unsigned long long quotaVersion_ = 0, nextQuotaRead_ = 0;
+    HWND menuDropWindow_ = nullptr;
+    std::wstring FileHit(const Widget& w, LPARAM point) const;
+    unsigned long long viewVersion_ = 0;
+    std::vector<std::wstring> menuZoneOrder_;
+    std::vector<std::shared_ptr<const ZoneSearchItem>> searchItems_;
+    unsigned long long weatherCityVersion_ = 0;
+    HWND fileOwner_ = nullptr;
+    bool zoneOle_ = false;
+    std::wstring dataDirectory_;
     bool IsOurs(HWND h) const;
     // Bottom corner grips: -1 on the left, 1 on the right, 0 outside either grip.
     int GripAt(const Widget& w, POINT screen) const;
     void DragSize(Widget& w, POINT screen);
     bool Message(Widget& w, UINT m, WPARAM wp, LPARAM lp, LRESULT& r);
-    void Menu(Widget& w);
+    void Menu(Widget& w, const std::wstring& hit);
+    std::function<bool(UINT, WPARAM, LPARAM, LRESULT&)> shellMenuMessage_;
     void Activate(Widget& w);
     void Paint(Widget& w, Canvas& c);
     static void PaintShadow(Canvas& c, D2D1_RECT_F face);
@@ -112,7 +144,6 @@ private:
     std::unique_ptr<NetworkMonitor> network_;
     ChineseCalendar lunar_;
     int lastMinute_ = -1;
-    uint64_t cpuIdle_ = 0, cpuTotal_ = 0; // the last GetSystemTimes
     unsigned photoGen_ = 0;
     bool restackPosted_ = false;
     // Only Restack may change a widget's place in the z-order: anything else

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <winrt/Windows.System.Threading.h>
 
 namespace atrium {
 
@@ -982,6 +983,8 @@ float ReminderScrollMax(const WidgetContent& content, WidgetSize size)
 bool WidgetSupports(WidgetKind kind, WidgetSize size)
 {
     switch (kind) {
+    case WidgetKind::CodexQuota:
+        return size != WidgetSize::Large;
     case WidgetKind::Battery:
         return size == WidgetSize::Small;
     case WidgetKind::Bluetooth:
@@ -996,6 +999,31 @@ bool WidgetSupports(WidgetKind kind, WidgetSize size)
     }
 }
 
+FileZoneLayout LayoutFileZone(const WidgetContent& content, WidgetSize size)
+{
+    const bool grid = content.fileLayout.empty() ? content.text != L"文档" : content.fileLayout == L"grid";
+    const int columns = grid ? (size == WidgetSize::Small ? 2 : 4) : (size == WidgetSize::Small ? 1 : 2);
+    const float top = 40, baseBottom = WidgetHeight(size) - 12;
+    const float pitch = (baseBottom - top) / (size == WidgetSize::Large ? (grid ? 4.f : 5.f) : 2.f);
+    const float bottom = content.lastDrop.empty() ? baseBottom : WidgetHeight(size) - 34;
+    const size_t rows = (content.files.size() + columns - 1) / columns;
+    return {grid, columns, top, bottom, pitch, std::max(0.f, float(rows) * pitch - (bottom - top))};
+}
+
+bool LoadFileIcon(const WidgetContent::File& file)
+{
+    if (!file.icon) {
+        file.icon = std::make_shared<WidgetContent::FileIcon>();
+        try {
+            winrt::Windows::System::Threading::ThreadPool::RunAsync([slot = file.icon, path = file.path](const auto&) {
+                try { LoadShellImage(path, 48, slot->image); } catch (...) {}
+                slot->ready.store(true);
+            });
+        } catch (const winrt::hresult_error&) { file.icon->ready.store(true); }
+    }
+    return file.icon->ready.load();
+}
+
 void PaintWidget(Canvas& c, WidgetKind kind, WidgetSize size, WidgetMaterial material, const WidgetContent& content, const WidgetWorld& world,
                  std::vector<WidgetHit>& hits)
 {
@@ -1003,6 +1031,106 @@ void PaintWidget(Canvas& c, WidgetKind kind, WidgetSize size, WidgetMaterial mat
     const Pal p = Face(c, kind, material, world, H);
     hits.clear();
     switch (kind) {
+    case WidgetKind::CodexQuota: {
+        const float pad = kPad + 2;
+        c.Text(L"Codex 额度", D2D1::RectF(pad, 12, W - pad, 35), 15, p.text, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        if (content.limits.empty()) {
+            c.Text(content.quotaStatus.empty() ? L"正在同步…" : content.quotaStatus,
+                   D2D1::RectF(pad, 42, W - pad, H - 20), 14, p.sub, DWRITE_FONT_WEIGHT_NORMAL, 0, true);
+        } else {
+            const bool compact = content.limits.size() > 1 && size == WidgetSize::Small;
+            const bool columns = content.limits.size() > 1 && !compact;
+            const float width = columns ? (W - 2 * pad - 18) / 2 : W - 2 * pad;
+            for (size_t i = 0; i < content.limits.size(); ++i) {
+                const auto& limit = content.limits[i];
+                float x = pad + (columns ? i * (width + 18) : 0), y = compact ? 39.f + 48.f * i : 40.f;
+                wchar_t percent[16]{};
+                swprintf_s(percent, L"%.0f%%", limit.remaining);
+                c.Text(limit.label + L"剩余", D2D1::RectF(x, y, x + width, y + 20), 12, p.sub);
+                if (compact)
+                    c.Text(percent, D2D1::RectF(x + 62, y - 2, x + width, y + 20), 16, p.text, DWRITE_FONT_WEIGHT_SEMI_BOLD, 2);
+                else
+                    c.Text(percent, D2D1::RectF(x, y + 16, x + width, y + 54), 31, p.text, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+                float track = y + (compact ? 21.f : 58.f);
+                c.Fill(D2D1::RectF(x, track, x + width, track + 3), 1.5f, p.track);
+                if (limit.remaining > 0)
+                    c.Fill(D2D1::RectF(x, track, x + width * float(limit.remaining / 100), track + 3), 1.5f, p.blue);
+                c.Text(limit.reset.empty() ? L"重置时间未提供" : L"重置 " + limit.reset,
+                       D2D1::RectF(x, track + 5, x + width, track + 24), 11.5f, p.sub);
+            }
+            c.Text(content.quotaStatus + L" " + content.quotaUpdated, D2D1::RectF(pad, H - 27, W - pad, H - 8), 11, p.sub);
+        }
+        break;
+    }
+    case WidgetKind::FileZone: {
+        content.awaitingFileIcons = false;
+        const auto layout = LayoutFileZone(content, size);
+        const float pad = kPad, top = layout.top, bottom = layout.bottom;
+        const float scroll = std::clamp(content.scroll, 0.f, layout.maxScroll);
+        const wchar_t* sectionIcon = content.text == L"常用入口" ? L"\uECAA" : content.text == L"文档" ? L"\uE8A5" :
+                                     content.text == L"图片" || content.text == L"截图" ? L"\uEB9F" : L"\uE8B7";
+        c.Glyph(sectionIcon, D2D1::RectF(pad - 2, 12, pad + 15, 33), 15, p.blue);
+        c.Text(content.text, D2D1::RectF(pad + 21, 11, W - pad - 24, 34), 14, p.text, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        c.Text(std::to_wstring(content.files.size()), D2D1::RectF(W - pad - 26, 11, W - pad, 34), 12, p.sub, DWRITE_FONT_WEIGHT_MEDIUM, 2);
+        if (content.files.empty()) {
+            const float mid = (top + bottom) / 2;
+            c.Stroke(D2D1::RectF(pad, top + 2, W - pad, bottom - 2), 12, Alpha(p.text, .12f), 1);
+            c.Glyph(L"\uE896", D2D1::RectF(pad, mid - 23, W - pad, mid + 1), 19, p.sub);
+            c.Text(L"拖入桌面文件", D2D1::RectF(pad, mid + 4, W - pad, mid + 24), 12, p.sub, DWRITE_FONT_WEIGHT_NORMAL, 1);
+        }
+        c.Clip(D2D1::RectF(pad - 2, top, W - pad + 2, bottom));
+        const float gap = layout.grid ? 2.f : 6.f;
+        const float cellWidth = (W - 2 * pad - (layout.columns - 1) * gap) / layout.columns;
+        size_t first = size_t(scroll / layout.rowPitch) * layout.columns;
+        for (size_t i = first; i < content.files.size(); ++i) {
+            const float y = top + layout.RowOffset(i) - scroll;
+            if (y >= bottom) break;
+            const auto& file = content.files[i];
+            const float x = pad + (i % layout.columns) * (cellWidth + gap);
+            auto tile = D2D1::RectF(x, y + 2, x + cellWidth, y + layout.rowPitch - 3);
+            const bool hover = content.hoveredFile == file.path;
+            if (!layout.grid || hover) c.Fill(tile, 9, Alpha(p.text, hover ? .15f : .07f));
+            if (!layout.grid) c.Stroke(tile, 9, Alpha(p.text, .10f), .8f);
+            bool ready = LoadFileIcon(file);
+            content.awaitingFileIcons |= !ready;
+            const float iconSize = layout.grid ? (size == WidgetSize::Large ? 39.f : 31.f) : 25.f;
+            const float iconX = layout.grid ? x + (cellWidth - iconSize) * .5f : x + 8;
+            const float iconY = layout.grid ? y + 2 : (tile.top + tile.bottom - iconSize) * .5f;
+            auto iconRect = D2D1::RectF(iconX, iconY, iconX + iconSize, iconY + iconSize);
+            if (ready && !file.icon->image.empty()) c.Image(file.path, file.icon->image, iconRect);
+            else c.Glyph(file.folder ? L"\uE8B7" : L"\uE8A5", iconRect, 17, p.sub);
+            auto dot = file.name.find_last_of(L'.');
+            std::wstring ext = !file.folder && dot != std::wstring::npos && dot > 0 && dot + 1 < file.name.size() ? file.name.substr(dot + 1) : L"";
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::towupper);
+            const bool link = ext == L"LNK" || ext == L"URL";
+            const std::wstring label = (!ext.empty() && (!layout.grid || link)) ? file.name.substr(0, dot) : file.name;
+            if (layout.grid) {
+                c.Text(label, D2D1::RectF(x + 2, iconRect.bottom + 1, tile.right - 2, tile.bottom + 2),
+                       11.5f, p.text, DWRITE_FONT_WEIGHT_MEDIUM, 1, size == WidgetSize::Large);
+            } else {
+                float left = iconRect.right + 8, mid = (tile.top + tile.bottom) * .5f;
+                c.Text(label, D2D1::RectF(left, mid - 16, tile.right - 6, mid + 3), 13, p.text, DWRITE_FONT_WEIGHT_MEDIUM);
+                c.Text(file.folder ? L"文件夹" : link ? L"快捷方式" : ext.empty() ? L"文件" : ext,
+                       D2D1::RectF(left, mid + 2, tile.right - 6, mid + 18), 10.5f, p.sub);
+            }
+            auto hit = D2D1::RectF(tile.left, std::max(top, tile.top), tile.right, std::min(bottom, tile.bottom));
+            if (hit.bottom > hit.top) hits.push_back({hit, file.path});
+        }
+        c.Unclip();
+        if (layout.maxScroll > 0) {
+            float view = bottom - top, thumb = std::max(14.f, view * view / (view + layout.maxScroll));
+            float y = top + (view - thumb) * scroll / layout.maxScroll;
+            c.Fill(D2D1::RectF(W - 7, y, W - 5, y + thumb), 1, Alpha(p.text, .27f));
+        }
+        if (!content.lastDrop.empty()) {
+            const auto button = D2D1::RectF(pad, H - 32, W - pad, H - 9);
+            c.Text(L"记住规则…", button, 12, p.blue, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+            hits.push_back({button, L"learn"});
+        }
+        if (content.dropHover)
+            c.Stroke(D2D1::RectF(2, 2, W - 2, H - 2), kWidgetRadius - 2, p.blue, 2);
+        break;
+    }
     case WidgetKind::Clock:
         PaintClock(c, size, content, world, p, W, H);
         break;

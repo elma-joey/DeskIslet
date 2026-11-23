@@ -12,12 +12,13 @@
 #include "ui/surface.h"
 
 #include <memory>
+#include <atomic>
 #include <string>
 #include <vector>
 
 namespace atrium {
 
-enum class WidgetKind { Clock, Calendar, Battery, Digital, System, Notes, Reminders, Photos, Weather, Bluetooth, Network };
+enum class WidgetKind { Clock, Calendar, Battery, Digital, System, Notes, Reminders, Photos, Weather, Bluetooth, Network, FileZone, CodexQuota };
 enum class WidgetSize { Small, Medium, Large };
 // Glass: the bar's clear glass, its ink adapting to what shows through. Dusk: the same glass
 // dimmed by a dark veil, everything on it white (macOS's dimmed desktop widgets). Color: each
@@ -51,6 +52,21 @@ struct Reminder {
 
 // A widget's own content and its editing state.
 struct WidgetContent {
+    struct Limit { std::wstring label, reset; double remaining; };
+    std::vector<Limit> limits;
+    std::wstring quotaStatus, quotaUpdated;
+    struct FileIcon { IconImage image; std::atomic_bool ready = false; };
+    struct File {
+        std::wstring name, path;
+        bool folder, collected, onDesktop;
+        std::wstring modified;
+        mutable std::shared_ptr<FileIcon> icon;
+    };
+    mutable bool awaitingFileIcons = false;
+    std::vector<File> files;
+    std::wstring fileLayout, hoveredFile;
+    std::wstring lastDrop;
+    bool dropHover = false;
     std::wstring text;           // notes
     std::vector<Reminder> items; // reminders
     std::wstring folder;         // photos: the folder (empty: Pictures)
@@ -64,6 +80,15 @@ struct WidgetContent {
     bool caretOn = true; // blinking
     float scroll = 0;   // reminders: viewport offset, not saved
 };
+
+struct FileZoneLayout {
+    bool grid;
+    int columns;
+    float top, bottom, rowPitch, maxScroll;
+    float RowOffset(size_t index) const { return float(index / columns) * rowPitch; }
+};
+FileZoneLayout LayoutFileZone(const WidgetContent& content, WidgetSize size);
+bool LoadFileIcon(const WidgetContent::File& file);
 
 // What every widget may show.
 struct WidgetWorld {

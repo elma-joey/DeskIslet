@@ -1,4 +1,5 @@
 #include "ui/start_menu.h"
+#include "ui/desktop_widgets.h"
 
 #include "localization.h"
 
@@ -257,7 +258,7 @@ void StartMenu::SetSize(int grid, int icons)
     UpdateRoom();
     grid_ = std::min(layout_.size, room_);
     cols_ = kStartGrids[grid_].cols;
-    rows_ = kStartGrids[grid_].rows;
+    rows_ = kStartGrids[grid_].rows - int(zones_ && !zones_->menuZones.empty());
     page_ = std::clamp(page_, 0, Pages() - 1);
     folderPage_ = std::clamp(folderPage_, 0, FolderPages() - 1);
     // The window follows the icons (the panel springs inside it, it does not).
@@ -390,6 +391,7 @@ void StartMenu::Open(RECT bar, RECT logo, HWND previous)
 {
     previous_ = previous;
     bar_ = bar;
+    if (zones_) zones_->SyncFileZones();
     logo_ = logo;
     query_.clear();
     results_.clear();
@@ -679,24 +681,33 @@ void StartMenu::Restage()
     hoverAnim_.clear();
 }
 
-std::vector<StartMenu::Row> StartMenu::Results() const
+std::vector<StartMenu::Row> StartMenu::Results()
 {
     std::vector<Row> out;
+    if (query_.empty()) return out;
     // Folders first (by name or initials), then the apps.
     for (size_t i = 0; i < tiles_.size(); ++i)
         if (tiles_[i].folder && AppCatalog::Matches(CatalogApp{tiles_[i].name}, query_))
             out.push_back({0, int(i), {}});
-    std::vector<CatalogApp> apps;
     for (const CatalogApp& a : apps_)
         if (!Hidden(a.id) && AppCatalog::Matches(a, query_))
-            apps.push_back(a);
-    // Names that start with the query first, then the other matches.
-    std::stable_partition(apps.begin(), apps.end(), [&](const CatalogApp& a) {
-        return CompareStringEx(LOCALE_NAME_USER_DEFAULT, NORM_IGNORECASE, a.name.c_str(), int(std::min(a.name.size(), query_.size())), query_.c_str(),
-                               int(query_.size()), nullptr, nullptr, 0) == CSTR_EQUAL;
-    });
-    for (CatalogApp& a : apps)
-        out.push_back({0, -1, std::move(a)});
+            out.push_back({0, -1, a});
+    if (zones_) {
+        searchVersion_ = zones_->ZoneVersion();
+        for (const auto& hit : zones_->SearchItems())
+            if (AppCatalog::Matches(CatalogApp{hit->file.name}, query_))
+                out.push_back({0, -1, {}, hit});
+    }
+    auto name = [&](const Row& r) -> const std::wstring& {
+        if (r.zoneFile) return r.zoneFile->file.name;
+        return r.folder >= 0 ? tiles_[size_t(r.folder)].name : r.app.name;
+    };
+    auto prefix = [&](const Row& r) {
+        const auto& n = name(r);
+        return n.size() >= query_.size() && CompareStringOrdinal(n.c_str(), int(query_.size()), query_.c_str(), int(query_.size()), TRUE) == CSTR_EQUAL;
+    };
+    auto endPrefixes = std::stable_partition(out.begin(), out.end(), prefix);
+    std::stable_partition(out.begin(), endPrefixes, [&](const Row& r) { return name(r).size() == query_.size(); });
     return out;
 }
 
@@ -975,6 +986,8 @@ void StartMenu::Paint(Canvas& c)
             PaintIndex(c, t);
     } else {
         PaintTiles(c, t, under);
+        zoneCards_.clear();
+        if (folder_ < 0 && !powerOpen_ && zones_ && !zones_->menuZones.empty()) PaintZones(c, t);
     }
     if (open > 0.01f)
         c.EndBlur(6 * open);
@@ -1017,7 +1030,7 @@ void StartMenu::PaintSearch(Canvas& c, const Theme& t)
     c.Glyph(L"\uE721", D2D1::RectF(search.left + 10, search.top, search.left + 44, search.bottom), 16, t.subtext);
     D2D1_RECT_F field = D2D1::RectF(search.left + 46, search.top, search.right - 48, search.bottom);
     if (query_.empty())
-        c.Text(Tr(L"Search apps and folders"), field, 15, t.faint);
+        c.Text(Tr(L"Search apps, folders and zone files"), field, 15, t.faint);
     else
         c.Text(query_, field, 15, t.text);
     if (!naming_) {
@@ -1167,10 +1180,95 @@ void StartMenu::PaintTiles(Canvas& c, const Theme& t, float shown)
     }
     c.Unclip();
     if (shown > 0.01f)
-        PaintDots(c, t, Pages(), pageShown_, MainRect().bottom - 26, L"page:");
+        PaintDots(c, t, Pages(), pageShown_, zones_ && !zones_->menuZones.empty() ? kGridTop + rows_ * ch + 1 : MainRect().bottom - 26, L"page:");
 }
 
 // Page dots; the current one is drawn out into a short capsule.
+void StartMenu::AttachZones(DesktopWidgets& zones)
+{
+    zones_ = &zones;
+    zones.AttachMenuDrop(Hwnd(), [this](POINT screen) {
+        POINT p = surface_.ScreenToContent(screen);
+        p.x -= OffsetXPx(); p.y -= OffsetPx();
+        return ZoneAt(p);
+    });
+}
+
+std::wstring StartMenu::ZoneAt(POINT client) const
+{
+    if (!Visible() || Listing() || folder_ >= 0 || powerOpen_) return {};
+    for (const auto& card : zoneCards_)
+        if (In(card.rect, client.x / surface_.Scale(), client.y / surface_.Scale())) return card.id;
+    return {};
+}
+
+void StartMenu::PaintZones(Canvas& c, const Theme& t)
+{
+    const float gap = 8, margin = 16, top = kGridTop + rows_ * CellH() + 18;
+    const float bottom = MainRect().bottom - 12, rowH = 28;
+    if (bottom - top < 50) return;
+    const int visible = std::max(1, int((bottom - top - 30) / rowH));
+    const auto& names = zones_->MenuZoneOrder();
+    if (names.empty()) return;
+    const int count = int(names.size());
+    float left = margin, right = W() - margin;
+    auto columns = [&] { return std::max(1, int((right - left + gap) / (152 + gap))); };
+    if (count > columns()) {
+        auto arrow = [&](float x, const wchar_t* glyph, const wchar_t* id, bool enabled) {
+            const auto hit = D2D1::RectF(x, top, x + 26, bottom);
+            if (enabled && hover_ == id) c.Fill(hit, 9, t.hover);
+            c.Glyph(glyph, hit, 13, enabled ? t.text : t.faint);
+            if (enabled) hits_.push_back({hit, id});
+        };
+        left += 30;
+        right -= 30;
+        const int last = (count - 1) / columns();
+        zonePage_ = std::clamp(zonePage_, 0, last);
+        arrow(margin, L"\uE76B", L"zonePrev", zonePage_ > 0);
+        arrow(right + 4, L"\uE76C", L"zoneNext", zonePage_ < last);
+    } else zonePage_ = 0;
+    const int slots = std::min(columns(), count);
+    const int firstZone = slots * zonePage_;
+    const float width = (right - left + gap) / slots - gap;
+    float x = left;
+    for (int index = firstZone; index < std::min(count, firstZone + slots); ++index) {
+        const auto& name = names[size_t(index)];
+        const auto& files = zones_->menuZones.at(name).files;
+        const auto card = D2D1::RectF(x, top, x + width, bottom);
+        c.Fill(card, 12, t.card);
+        c.Stroke(card, 12, Alpha(t.text, .11f), 1);
+        zoneCards_.push_back({card, name});
+        hits_.push_back({card, L"zone:" + name});
+        c.Text(name, D2D1::RectF(x + 12, top + 2, card.right - 32, top + 29), 13, t.text, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        c.Text(std::to_wstring(files.size()), D2D1::RectF(card.right - 36, top + 2, card.right - 12, top + 29), 11.5f, t.subtext, DWRITE_FONT_WEIGHT_MEDIUM, 2);
+        int& first = firstZoneFile_[name];
+        first = std::clamp(first, 0, std::max(0, int(files.size()) - visible));
+        for (int i = first; i < int(files.size()) && i < first + visible; ++i) {
+            const auto& file = files[size_t(i)];
+            const float y = top + 29 + (i - first) * rowH;
+            const auto row = D2D1::RectF(x + 4, y, card.right - 5, y + rowH);
+            std::wstring id = L"zfile:" + file.path;
+            if (hover_ == id) c.Fill(row, 7, t.hover);
+            const auto icon = D2D1::RectF(x + 11, y + 3, x + 33, y + 25);
+            if (!LoadFileIcon(file)) c.Continue();
+            if (file.icon->ready.load() && !file.icon->image.empty())
+                c.Image(file.path + L"|" + file.modified, file.icon->image, icon);
+            else c.Glyph(file.folder ? L"\uE8B7" : L"\uE8A5", icon, 17, t.subtext);
+            auto label = file.name;
+            if (label.size() > 4 && _wcsicmp(label.c_str() + label.size() - 4, L".lnk") == 0) label.resize(label.size() - 4);
+            c.Text(label, D2D1::RectF(x + 40, y, row.right - 4, y + rowH), 12.5f, t.text);
+            hits_.push_back({row, std::move(id)});
+        }
+        if (files.empty()) c.Text(L"拖入桌面文件", D2D1::RectF(x + 12, top + 29, card.right - 8, bottom - 6), 12, t.subtext);
+        if (int(files.size()) > visible) {
+            const float track = bottom - top - 34, thumb = std::max(9.f, track * visible / float(files.size()));
+            const float y = top + 29 + (track - thumb) * first / float(int(files.size()) - visible);
+            c.Fill(D2D1::RectF(card.right - 4, y, card.right - 2, y + thumb), 1, Alpha(t.text, .25f));
+        }
+        x += width + gap;
+    }
+}
+
 void StartMenu::PaintDots(Canvas& c, const Theme& t, int pages, float current, float y, const wchar_t* prefix)
 {
     if (pages <= 1)
@@ -1210,7 +1308,7 @@ void StartMenu::PaintRows(Canvas& c, const Theme& t, const std::vector<Row>& row
     scrollTarget_ = std::clamp(scrollTarget_, 0.f, std::max(0.f, contentH_ - viewH));
     scroll_ = std::clamp(scroll_, 0.f, std::max(0.f, contentH_ - viewH));
     if (rows.empty()) {
-        std::wstring msg = !query_.empty() ? Tr(L"No apps found") : catalog_.Loaded() ? Tr(L"No apps") : Tr(L"Reading…");
+        std::wstring msg = !query_.empty() ? Tr(L"No matching items") : catalog_.Loaded() ? Tr(L"No apps") : Tr(L"Reading…");
         c.Text(msg, D2D1::RectF(kSearchX, kGridTop + 60, w - kSearchX, kGridTop + 90), 13, Alpha(t.subtext, shown), DWRITE_FONT_WEIGHT_NORMAL, 1);
         return;
     }
@@ -1264,7 +1362,14 @@ void StartMenu::PaintRows(Canvas& c, const Theme& t, const std::vector<Row>& row
         D2D1_RECT_F ir = D2D1::RectF(r.left + 14, iy, r.left + 14 + kRowIcon, iy + kRowIcon);
         c.BeginGroup(1, pressed_ == id ? 0.94f : 1 + 0.06f * hv, (ir.left + ir.right) / 2, (ir.top + ir.bottom) / 2);
         std::wstring name, note;
-        if (row.folder >= 0) {
+        if (row.zoneFile) {
+            const auto& file = row.zoneFile->file;
+            if (!LoadFileIcon(file)) c.Continue();
+            if (file.icon->ready.load() && !file.icon->image.empty()) c.Image(file.path + L"|" + file.modified, file.icon->image, ir);
+            else c.Glyph(file.folder ? L"\uE8B7" : L"\uE8A5", ir, 20, t.subtext);
+            name = file.name;
+            note = row.zoneFile->zone;
+        } else if (row.folder >= 0) {
             const Tile& f = tiles_[size_t(row.folder)];
             c.Fill(ir, 8, t.cardHot);
             const float m = 10, gap = 2, pad = (kRowIcon - 2 * m - gap) / 2;
@@ -1281,7 +1386,7 @@ void StartMenu::PaintRows(Canvas& c, const Theme& t, const std::vector<Row>& row
         }
         c.EndGroup();
         c.Text(name, D2D1::RectF(r.left + 56, r.top, r.right - 100, r.bottom), 14, t.text);
-        if (selected && !query_.empty())
+        if (selected && !query_.empty() && !row.zoneFile)
             note = Tr(L"Enter to open");
         if (!note.empty())
             c.Text(note, D2D1::RectF(r.right - 110, r.top, r.right - 18, r.bottom), 12, t.faint, DWRITE_FONT_WEIGHT_NORMAL, 2);
@@ -2021,6 +2126,19 @@ void StartMenu::RunPower(int index)
 
 void StartMenu::Activate(const std::wstring& id)
 {
+    if (id == L"zonePrev" || id == L"zoneNext") {
+        zonePage_ += id == L"zoneNext" ? 1 : -1;
+        surface_.Invalidate();
+        return;
+    }
+    if (zones_ && Starts(id, L"zfile:")) {
+        for (auto& [zone, data] : zones_->menuZones)
+            for (const auto& file : data.files) if (id.substr(6) == file.path) {
+                if (zones_->FileAction(L"open", zone, file.path)) Close(true);
+                return;
+            }
+        return;
+    }
     if (Starts(id, L"tile:")) {
         const int i = Index(id, 5);
         if (i >= 0 && i < int(tiles_.size())) {
@@ -2037,7 +2155,9 @@ void StartMenu::Activate(const std::wstring& id)
         const auto& rows = RowsShown();
         const size_t i = size_t(Index(id, 4));
         if (i < rows.size() && !rows[i].letter) {
-            if (rows[i].folder >= 0)
+            if (auto hit = rows[i].zoneFile) {
+                if (zones_->FileAction(L"open", hit->zone, hit->file.path)) Close(true);
+            } else if (rows[i].folder >= 0)
                 OpenFolder(rows[i].folder);
             else
                 Launch(rows[i].app);
@@ -2088,6 +2208,23 @@ void StartMenu::ContextMenu(const std::wstring& id, POINT screen)
 {
     if (!menu)
         return;
+    if (zones_ && Starts(id, L"zfile:")) {
+        for (const auto& [zone, data] : zones_->menuZones)
+            for (const auto& file : data.files) if (id.substr(6) == file.path) {
+                menuOpen_ = true;
+                zones_->FileMenu(Hwnd(), zone, file);
+                menuOpen_ = false;
+                return;
+            }
+        return;
+    }
+    if (zones_ && Starts(id, L"zone:")) {
+        menuOpen_ = true;
+        menu->Open({{L"移回桌面", 1}, {L"解散分区…", 2}}, screen, MenuPlace::Below, [this, zone = id.substr(5)](int pick) {
+            if (pick == 1 || pick == 2) zones_->FileAction(pick == 1 ? L"desktopZone" : L"dissolve", zone);
+        }, [this] { menuOpen_ = false; });
+        return;
+    }
     std::vector<MenuEntry> entries;
     CatalogApp app;
     bool isApp = false, inFolder = false;
@@ -2111,6 +2248,12 @@ void StartMenu::ContextMenu(const std::wstring& id, POINT screen)
         const size_t i = size_t(Index(id, 4));
         if (i >= rows.size() || rows[i].letter)
             return;
+        if (auto hit = rows[i].zoneFile) {
+            menuOpen_ = true;
+            zones_->FileMenu(Hwnd(), hit->zone, hit->file);
+            menuOpen_ = false;
+            return;
+        }
         if (rows[i].folder >= 0)
             folderKey = tiles_[size_t(rows[i].folder)].key;
         else
@@ -2359,6 +2502,7 @@ void StartMenu::PlaceIme()
 
 bool StartMenu::Message(UINT m, WPARAM w, LPARAM l, LRESULT& result)
 {
+    if (zones_ && zones_->ShellMenuMessage(m, w, l, result)) return true;
     // Mouse positions in the menu's coordinates (the panel's corner, lower in the window).
     POINT pt{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
     const POINT content = pt;
@@ -2378,6 +2522,17 @@ bool StartMenu::Message(UINT m, WPARAM w, LPARAM l, LRESULT& result)
         return false;
     case WM_TIMER:
         if (w == kStatusTimer) {
+            if (zones_) {
+                zones_->SyncFileZones();
+                if (!query_.empty() && zones_->ZoneVersion() != searchVersion_) {
+                    results_ = Results();
+                    sel_ = -1;
+                    pressed_.clear();
+                }
+                int rows = kStartGrids[grid_].rows - int(!zones_->menuZones.empty());
+                if (rows_ != rows) { rows_ = rows; page_ = std::clamp(page_, 0, Pages() - 1); }
+                surface_.Invalidate();
+            }
             if (onStatusRequest)
                 onStatusRequest();
             return true;
@@ -2395,6 +2550,14 @@ bool StartMenu::Message(UINT m, WPARAM w, LPARAM l, LRESULT& result)
         }
         return false;
     case WM_MOUSEMOVE: {
+        if ((w & MK_LBUTTON) && Starts(pressed_, L"zfile:") &&
+            (std::abs(pt.x - pressPt_.x) > GetSystemMetrics(SM_CXDRAG) || std::abs(pt.y - pressPt_.y) > GetSystemMetrics(SM_CYDRAG))) {
+            auto path = pressed_.substr(6);
+            pressed_.clear();
+            ReleaseCapture();
+            DesktopWidgets::DragFile(Hwnd(), path);
+            return true;
+        }
         if (sizing_) {
             POINT p;
             GetCursorPos(&p);
@@ -2436,6 +2599,7 @@ bool StartMenu::Message(UINT m, WPARAM w, LPARAM l, LRESULT& result)
         return true;
     case WM_LBUTTONDOWN: {
         pressed_ = HitAt(pt);
+        if (Starts(pressed_, L"zfile:")) { pressPt_ = pt; SetCapture(Hwnd()); }
         if (powerOpen_ && pressed_ != L"power" && !Starts(pressed_, L"pw:"))
             powerOpen_ = false; // a press elsewhere folds the power card away
         if (naming_ && pressed_ != L"ftitle")
@@ -2478,6 +2642,7 @@ bool StartMenu::Message(UINT m, WPARAM w, LPARAM l, LRESULT& result)
         return true;
     }
     case WM_LBUTTONUP: {
+        if (Starts(pressed_, L"zfile:") && GetCapture() == Hwnd()) ReleaseCapture();
         if (scrubbing_) {
             scrubbing_ = false;
             pressed_.clear();
@@ -2531,6 +2696,15 @@ bool StartMenu::Message(UINT m, WPARAM w, LPARAM l, LRESULT& result)
         client.x -= OffsetXPx();
         client.y -= OffsetPx();
         float notches = float(GET_WHEEL_DELTA_WPARAM(w)) / WHEEL_DELTA;
+        const auto zone = ZoneAt(client);
+        if (!zone.empty() && m == WM_MOUSEWHEEL) {
+            wheelAcc_ -= notches;
+            int rows = int(wheelAcc_);
+            firstZoneFile_[zone] += rows * 2;
+            wheelAcc_ -= rows;
+            surface_.Invalidate();
+            return true;
+        }
         if (m == WM_MOUSEWHEEL && HitAt(client) == L"volume") {
             status_.volume = AdjustVolume(int(std::lround(2 * notches)));
             if (notches > 0)

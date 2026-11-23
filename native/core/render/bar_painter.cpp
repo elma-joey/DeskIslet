@@ -398,7 +398,7 @@ void BarPainter::DrawContent(ID2D1DeviceContext2* d2d, const BarScene& scene, In
 
     usedBitmaps_.clear();
     for (const auto& it : scene.extras) { // the right group follows the clock's ink, the others the apps'
-        bool right = it.key == L"#notify" || it.key == L"#tray" || it.key == L"#status";
+        bool right = it.key == L"#notify" || it.key == L"#tray" || it.key == L"#status" || it.key == L"#usage" || it.key == L"#record";
         DrawItem(d2d, scene, it, brush.get(), right ? inkFor(darkText) : ink, right ? washFor(darkText) : wash);
     }
     for (const auto& [key, m] : motion_)
@@ -502,6 +502,30 @@ void BarPainter::DrawItem(ID2D1DeviceContext2* d2d, const BarScene& scene, const
               (m.leaving ? 0.45f + 0.55f * m.appear : 1.f);
     float up = m.hop * 0.32f * size + (magnifying ? 0.f : 1.5f * s * hover) + 2.0f * s * lift;
     d2d->SetTransform(D2D1::Matrix3x2F::Scale(k, k, D2D1::Point2F(bx, bottom)) * D2D1::Matrix3x2F::Translation(cx - bx, -up));
+    if (it.key == L"#usage") {
+        d2d->SetTransform(D2D1::Matrix3x2F::Translation(cx - bx, 0));
+        const float font = std::clamp((scene.bar.bottom - scene.bar.top) * 0.22f, 10.f * s, 13.f * s);
+        const float line = font * 1.3f, mid = (plate.top + plate.bottom) / 2, split = plate.left + 28.f * s;
+        auto row = [&](const wchar_t* label, int value, float top) {
+            if (auto f = Format(font, DWRITE_FONT_WEIGHT_NORMAL)) {
+                auto muted = ink;
+                muted.a *= 0.84f * m.appear;
+                brush->SetColor(muted);
+                DrawUiText(d2d, dwrite_.get(), label, f, D2D1::RectF(plate.left, top, split, top + line), brush);
+            }
+            if (auto f = Format(font, DWRITE_FONT_WEIGHT_SEMI_BOLD)) {
+                auto color = ink;
+                color.a *= m.appear;
+                brush->SetColor(color);
+                DrawUiText(d2d, dwrite_.get(), value < 0 ? L"—" : std::to_wstring(value) + L"%", f,
+                           D2D1::RectF(split, top, plate.right, top + line), brush);
+            }
+        };
+        row(L"CPU", scene.status.cpuPercent, mid - line);
+        row(L"内存", scene.status.memoryPercent, mid);
+        d2d->SetTransform(D2D1::Matrix3x2F::Identity());
+        return;
+    }
     if (it.key == L"#status") {
         bool darkInk = ink.r < 0.5f;
         if (scene.statusIcons)
@@ -522,7 +546,19 @@ void BarPainter::DrawItem(ID2D1DeviceContext2* d2d, const BarScene& scene, const
         d2d->SetTransform(D2D1::Matrix3x2F::Identity());
         return;
     }
-    if (it.key == L"#start") {
+    if (it.key == L"#record") {
+        const auto center = D2D1::Point2F((icon.left + icon.right) / 2, (icon.top + icon.bottom) / 2);
+        const float r = size * 0.32f;
+        brush->SetColor(ink);
+        d2d->DrawEllipse(D2D1::Ellipse(center, r, r), brush, 1.6f * s);
+        brush->SetColor(D2D1::ColorF(0.92f, 0.22f, 0.25f, m.appear));
+        if (it.active) {
+            const float h = r * 0.52f;
+            d2d->FillRectangle(D2D1::RectF(center.x - h, center.y - h, center.x + h, center.y + h), brush);
+        } else {
+            d2d->FillEllipse(D2D1::Ellipse(center, r * 0.55f, r * 0.55f), brush);
+        }
+    } else if (it.key == L"#start") {
         DrawLogo(d2d, icon, m.appear);
     } else if (!it.glyph.empty()) {
         if (IDWriteTextFormat* f = Format(size * 0.62f, DWRITE_FONT_WEIGHT_NORMAL, IconFontFamily())) {

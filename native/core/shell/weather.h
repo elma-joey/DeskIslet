@@ -56,6 +56,7 @@ public:
     WeatherSource& operator=(const WeatherSource&) = delete;
 
     void SetActive(bool on);                // fetch only while a weather widget shows
+    void SetLocation(std::wstring city, double lat, double lon, const std::wstring& manualCache);
     void Refresh();                         // the labels are language-specific: fetch again after a language change
     Weather Latest();
 
@@ -69,6 +70,9 @@ private:
     std::condition_variable wake_;
     bool active_ = false, quit_ = false, dirty_ = true;
     Weather latest_;
+    std::wstring city_, cachePath_;
+    double latitude_ = 0, longitude_ = 0;
+    unsigned long long locationVersion_ = 0;
     std::thread thread_;
 };
 

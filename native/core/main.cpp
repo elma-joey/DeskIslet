@@ -69,6 +69,7 @@ constexpr UINT WM_STATUS = WM_APP + 10;       // lParam: SystemStatus*, read off
 constexpr UINT WM_UPDATE_READY = WM_APP + 11; // background package is validated and ready
 constexpr UINT WM_WIN_KEY = WM_APP + 12;      // the Windows key alone (wParam 0, winKeyStart), Win + 1..9, 0 (1..10, winNumbers)
 constexpr UINT WM_USB = WM_APP + 13;          // the device worker has queued removal notices
+constexpr UINT WM_RECORD_STATE = WM_APP + 14; // managed recording controller
 constexpr UINT_PTR kStatusTimer = 0x52;       // the bar's status icon
 constexpr UINT_PTR kTrayFocusTimer = 0x53;    // after a forwarded tray click
 constexpr UINT_PTR kDisplaySettleTimer = 0x56; // once more after a display change, the topology settled
@@ -79,7 +80,7 @@ constexpr UINT kTrayId = 1;
 
 enum Command : UINT {
     kCmdSettings = 100, kCmdToggle, kCmdExit, kCmdNewWindow, kCmdPin, kCmdUnpin, kCmdClose, kCmdOpenLocation, kCmdDesktop, kCmdTaskManager, kCmdTerminate, kCmdTerminateConfirm,
-    kCmdWidgets, kCmdStage, kCmdWidgetsModule, kCmdStageAdd, kCmdRunAs, kCmdProperties,
+    kCmdWidgets, kCmdStage, kCmdWidgetsModule, kCmdStageAdd, kCmdRunAs, kCmdProperties, kCmdManageFiles,
     kCmdRecent = 2000 // + index into the recent list (its length is bounded)
 };
 
@@ -92,6 +93,7 @@ struct App {
     std::vector<std::unique_ptr<Bar>> secondaryBars;
     Bar* activeBar = nullptr; // the last taskbar the pointer interacted with
     SystemStatus lastStatus;
+    bool recording = false;
     bool capturable = false;
     bool displaysReady = false;
     ULONGLONG switchedBarAt = 0; // switching displays must not suppress the first popup click
@@ -369,6 +371,7 @@ void ShowMenu(POINT pt)
     entries.push_back({});
     entries.push_back({Tr(L"Taskbar"), kCmdToggle, g_app.barOn.value_or(true)});
     entries.push_back({Tr(L"Desktop Widgets"), kCmdWidgetsModule, g_app.widgetsOn});
+    entries.push_back({L"管理桌面分区…", kCmdManageFiles});
     entries.push_back({Tr(L"Stage Manager"), kCmdStage, g_app.stage->Enabled()});
     entries.push_back({});
     entries.push_back({Tr(L"Quit Atrium"), kCmdExit});
@@ -376,6 +379,9 @@ void ShowMenu(POINT pt)
         switch (cmd) {
         case kCmdSettings:
             OpenSettings();
+            break;
+        case kCmdManageFiles:
+            g_app.widgets->ShowFileManager();
             break;
         case kCmdWidgets:
             OpenSettings(L"widgets");
@@ -1075,6 +1081,13 @@ void ConfigureBar(Bar& bar)
     bar.onReorder = Reorder;
     bar.onOverflow = ShowOverflow;
     bar.onStartClick = ToggleStart;
+    bar.SetRecording(g_app.recording);
+    bar.onRecordClick = [](RECT anchor) {
+        MONITORINFOEXW mi{};
+        mi.cbSize = sizeof(mi);
+        GetMonitorInfoW(MonitorFromRect(&anchor, MONITOR_DEFAULTTONEAREST), &mi);
+        if (g_app.widgets) g_app.widgets->FileAction(L"record", mi.szDevice);
+    };
     bar.onNotifyClick = [](RECT) { g_app.notes->ToggleCenter(); };
     bar.onTrayClick = ToggleTray;
     bar.onDesktopClick = [] { SendWinShortcut('D'); }; // the system's Show Desktop: a second click brings the windows back
@@ -1084,7 +1097,11 @@ void ConfigureBar(Bar& bar)
             g_app.calendar->Visible() || g_app.notes->CenterVisible() || g_app.menu->Visible());
     };
     bar.onStatusWheel = [](int notches) { AdjustVolume(2 * notches); UpdateStatus(); };
-    bar.onFileDragHover = [](const std::wstring& key) { g_app.tasks->Show(key); };
+    bar.onFileDragHover = [](const std::wstring& key) {
+        if (key == L"#start") {
+            if (!g_app.start->Visible()) ToggleStart({});
+        } else g_app.tasks->Show(key);
+    };
     bar.canOpenFiles = [](const std::wstring& key) { return g_app.tasks->CanOpenFiles(key); };
     bar.onDropFiles = [](const std::wstring& key, const std::vector<std::wstring>& files) { g_app.tasks->OpenFiles(key, files); };
     bar.onContextMenu = ShowMenu;
@@ -1263,6 +1280,10 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l)
     case WM_CATALOG:
         if (g_app.start)
             g_app.start->Refresh();
+        return 0;
+    case WM_RECORD_STATE:
+        g_app.recording = w != 0;
+        if (g_app.bar) ForBars([&](Bar& bar) { bar.SetRecording(g_app.recording); });
         return 0;
     case WM_VOLUME:
         UpdateStatus();
@@ -1709,6 +1730,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
     g_app.start->onStatusRequest = UpdateStatus;
     g_app.calendar = std::make_unique<CalendarPanel>(instance);
     g_app.widgets = std::make_unique<DesktopWidgets>(instance);
+    g_app.start->AttachZones(*g_app.widgets);
     g_app.widgets->ReloadLanguage(); // cached weather labels follow the saved language
     g_app.stage = std::make_unique<StageManager>(instance, *g_app.tasks);
     g_app.control->onStage = SetStageManager;
@@ -1821,4 +1843,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
     ReleaseMutex(mutex);
     CloseHandle(mutex);
     return 0;
+}
+
+extern "C" IMAGE_DOS_HEADER __ImageBase;
+extern "C" __declspec(dllexport) int WINAPI DeskfoldRunCore(wchar_t* command)
+{
+    return wWinMain(reinterpret_cast<HINSTANCE>(&__ImageBase), nullptr, command, SW_SHOWDEFAULT);
 }

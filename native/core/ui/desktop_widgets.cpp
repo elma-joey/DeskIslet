@@ -21,7 +21,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <random>
+#include <set>
 #include <thread>
 
 #pragma comment(lib, "dwmapi.lib")
@@ -54,7 +56,8 @@ struct KindName {
 const KindName kKinds[] = {{WidgetKind::Clock, L"clock"},     {WidgetKind::Calendar, L"calendar"},   {WidgetKind::Battery, L"battery"},
                            {WidgetKind::Digital, L"digital"}, {WidgetKind::System, L"system"},       {WidgetKind::Notes, L"notes"},
                            {WidgetKind::Reminders, L"reminders"}, {WidgetKind::Photos, L"photos"},  {WidgetKind::Weather, L"weather"},
-                           {WidgetKind::Bluetooth, L"bluetooth"}, {WidgetKind::Network, L"network"}};
+                           {WidgetKind::Bluetooth, L"bluetooth"}, {WidgetKind::Network, L"network"}, {WidgetKind::FileZone, L"file-zone"},
+                           {WidgetKind::CodexQuota, L"codex-quota"}};
 
 const wchar_t* NameOf(WidgetKind k)
 {
@@ -79,6 +82,9 @@ bool Resizable(WidgetKind k) { return WidgetSupports(k, WidgetSize::Medium) || W
 
 std::wstring LayoutPath()
 {
+    wchar_t dir[32768]{};
+    if (DWORD n = GetEnvironmentVariableW(L"DESKFOLD_DATA", dir, DWORD(std::size(dir))); n && n < std::size(dir))
+        return std::wstring(dir) + L"\\widgets.json";
     std::wstring p = SettingsPath();
     return p.substr(0, p.find_last_of(L'\\')) + L"\\widgets.json";
 }
@@ -217,11 +223,89 @@ IconImage ReadPhoto(const std::wstring& path, UINT w, UINT h)
 
 } // namespace
 
+struct ZoneDropTarget : winrt::implements<ZoneDropTarget, IDropTarget> {
+    std::function<bool(const std::wstring&, bool)> accept;
+    std::function<void(bool)> highlight;
+    DWORD allowed = DROPEFFECT_NONE;
+    std::function<std::wstring(POINT)> zoneAt;
+    std::wstring zone, paths;
+    DWORD sourceEffect = DROPEFFECT_NONE;
+    void UpdateZone(POINTL pt) {
+        auto next = zoneAt(POINT{pt.x, pt.y});
+        if (next == zone) return;
+        zone = std::move(next);
+        allowed = !zone.empty() && sourceEffect && accept(paths, false) ? sourceEffect : DROPEFFECT_NONE;
+    }
+    static std::wstring Paths(IDataObject* data)
+    {
+        if (!data) return {};
+        winrt::com_ptr<IShellItemArray> items;
+        if (SUCCEEDED(SHCreateShellItemArrayFromDataObject(data, IID_PPV_ARGS(items.put())))) {
+            DWORD count = 0;
+            std::wstring paths;
+            if (FAILED(items->GetCount(&count))) return {};
+            for (DWORD i = 0; i < count; ++i) {
+                winrt::com_ptr<IShellItem> item;
+                PWSTR path = nullptr;
+                if (FAILED(items->GetItemAt(i, item.put()))) return {};
+                if (FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+                    SFGAOF attributes = 0;
+                    if (SUCCEEDED(item->GetAttributes(SFGAO_FILESYSTEM, &attributes)) && !(attributes & SFGAO_FILESYSTEM)) continue;
+                    return {};
+                }
+                if (!paths.empty()) paths += L'\n';
+                paths += path;
+                CoTaskMemFree(path);
+                if (paths.size() > 64000) return {};
+            }
+            return paths;
+        }
+        FORMATETC format{CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        STGMEDIUM storage{};
+        if (FAILED(data->GetData(&format, &storage))) return {};
+        HDROP drop = reinterpret_cast<HDROP>(storage.hGlobal);
+        std::wstring paths;
+        UINT count = DragQueryFileW(drop, 0xffffffff, nullptr, 0);
+        for (UINT i = 0; i < count; ++i) {
+            std::wstring path(DragQueryFileW(drop, i, nullptr, 0) + 1, L'\0');
+            path.resize(DragQueryFileW(drop, i, path.data(), UINT(path.size())));
+            if (path.empty() || paths.size() + path.size() + 1 > 64000) { paths.clear(); break; }
+            if (i) paths += L'\n';
+            paths += path;
+        }
+        ReleaseStgMedium(&storage);
+        return paths;
+    }
+    HRESULT __stdcall DragEnter(IDataObject* data, DWORD, POINTL pt, DWORD* effect) override {
+        allowed = (*effect & DROPEFFECT_LINK) ? DROPEFFECT_LINK : (*effect & DROPEFFECT_COPY);
+        if (zoneAt) {
+            sourceEffect = allowed; allowed = DROPEFFECT_NONE;
+            paths = Paths(data); zone.clear(); UpdateZone(pt);
+        } else if (allowed && !accept(Paths(data), false)) allowed = DROPEFFECT_NONE;
+        highlight(allowed != DROPEFFECT_NONE);
+        *effect = allowed;
+        return S_OK;
+    }
+    HRESULT __stdcall DragOver(DWORD, POINTL pt, DWORD* effect) override { if (zoneAt) UpdateZone(pt); *effect = allowed; return S_OK; }
+    HRESULT __stdcall DragLeave() override { highlight(false); allowed = DROPEFFECT_NONE; zone.clear(); paths.clear(); return S_OK; }
+    HRESULT __stdcall Drop(IDataObject* data, DWORD, POINTL pt, DWORD* effect) override {
+        if (zoneAt) UpdateZone(pt);
+        *effect = allowed && accept(Paths(data), true) ? allowed : DROPEFFECT_NONE;
+        return DragLeave();
+    }
+};
+
 struct DesktopWidgets::Widget {
     WidgetKind kind = WidgetKind::Clock;
     WidgetSize size = WidgetSize::Small;
     int col = 0, row = 0;
     std::unique_ptr<Surface> surface;
+    winrt::com_ptr<IDropTarget> dropTarget;
+    std::wstring revealDrop;
+    std::wstring pressedFile;
+    std::wstring clickedFile;
+    ULONGLONG clickedAt = 0;
+    ~Widget() { if (dropTarget && surface) RevokeDragDrop(surface->Hwnd()); }
     bool down = false, dragging = false;
     bool hover = false;    // the mouse is over it: the resize grip shows
     bool tracking = false; // TrackMouseEvent asked for its WM_MOUSELEAVE
@@ -250,6 +334,12 @@ struct PhotoRead {
 
 DesktopWidgets::DesktopWidgets(HINSTANCE instance) : instance_(instance)
 {
+    wchar_t dir[32768]{}, owner[32]{};
+    if (DWORD n = GetEnvironmentVariableW(L"DESKFOLD_DATA", dir, DWORD(std::size(dir))); n && n < std::size(dir))
+        dataDirectory_ = dir;
+    if (GetEnvironmentVariableW(L"DESKFOLD_OWNER", owner, DWORD(std::size(owner))))
+        fileOwner_ = reinterpret_cast<HWND>(_wcstoui64(owner, nullptr, 10));
+    if (fileOwner_) zoneOle_ = SUCCEEDED(OleInitialize(nullptr));
     g_widgets = this;
     WNDCLASSEXW wc{sizeof(wc)};
     wc.lpfnWndProc = HostProc;
@@ -262,6 +352,7 @@ DesktopWidgets::DesktopWidgets(HINSTANCE instance) : instance_(instance)
     world_.city = LocalCity();
     world_.lunar = &lunar_;
     weather_ = std::make_unique<WeatherSource>(host_, WM_WIDGET_WEATHER);
+    SyncWeatherCity();
     world_.weather = weather_->Latest(); // the last one, until the first fetch
     bluetooth_ = std::make_unique<BluetoothBatteries>(host_, WM_WIDGET_BLUETOOTH);
     network_ = std::make_unique<NetworkMonitor>();
@@ -291,7 +382,9 @@ void DesktopWidgets::ReloadLanguage()
 
 DesktopWidgets::~DesktopWidgets()
 {
+    if (menuDropWindow_) RevokeDragDrop(menuDropWindow_);
     SetEnabled(false);
+    if (zoneOle_) OleUninitialize();
     if (host_)
         DestroyWindow(host_);
     g_widgets = nullptr;
@@ -342,6 +435,7 @@ void DesktopWidgets::SetMonitor(HMONITOR monitor, bool refresh)
     if (monitor == monitor_ && !refresh)
         return;
     monitor_ = monitor;
+    viewVersion_ = 0;
     if (enabled_)
         for (auto& w : widgets_)
             Place(*w, false);
@@ -354,6 +448,8 @@ void DesktopWidgets::SetStatus(const SystemStatus& status)
     bool batteryChanged = world_.status.battery != status.battery || world_.status.batteryPercent != status.batteryPercent ||
                           world_.status.charging != status.charging;
     world_.status = status;
+    if (status.cpuPercent >= 0)
+        world_.cpu = float(status.cpuPercent) / 100.f;
     if (batteryChanged)
         for (auto& widget : widgets_)
             if (widget->kind == WidgetKind::Battery && widget->surface)
@@ -447,6 +543,9 @@ bool DesktopWidgets::FreeCellNear(float col, float row, WidgetSize size, const W
 
 void DesktopWidgets::Load()
 {
+    quotaIntroduced_ = false;
+    quotaVersion_ = nextQuotaRead_ = 0;
+    viewVersion_ = 0;
     widgets_.clear();
     unplaced_.clear();
     std::wstring text = ReadTextFile(LayoutPath());
@@ -463,6 +562,7 @@ void DesktopWidgets::Load()
         json::JsonObject o{nullptr};
         if (json::JsonObject::TryParse(text, o) && o.HasKey(L"widgets")) {
             read = true;
+            quotaIntroduced_ = o.GetNamedBoolean(L"codexQuotaIntroduced", false);
             for (const auto& v : o.GetNamedArray(L"widgets")) {
                 if (v.ValueType() != json::JsonValueType::Object)
                     continue;
@@ -470,8 +570,11 @@ void DesktopWidgets::Load()
                 WidgetKind k;
                 if (!ParseKind(std::wstring(e.GetNamedString(L"kind", L"")), k))
                     continue;
+                if (k == WidgetKind::CodexQuota) quotaIntroduced_ = true;
                 WidgetContent content;
                 content.text = e.GetNamedString(L"text", L"");
+                auto layout = e.GetNamedString(L"fileLayout", L"");
+                if (layout == L"grid" || layout == L"cards") content.fileLayout = layout;
                 content.folder = e.GetNamedString(L"folder", L"");
                 if (e.HasKey(L"cities") && e.GetNamedValue(L"cities").ValueType() == json::JsonValueType::Array)
                     for (const auto& cv : e.GetNamedArray(L"cities"))
@@ -510,8 +613,10 @@ void DesktopWidgets::Save() const
         e.SetNamedValue(L"col", json::JsonValue::CreateNumberValue(w->col));
         e.SetNamedValue(L"row", json::JsonValue::CreateNumberValue(w->row));
         const WidgetContent& c = w->content;
-        if (w->kind == WidgetKind::Notes)
+        if (w->kind == WidgetKind::Notes || w->kind == WidgetKind::FileZone)
             e.SetNamedValue(L"text", json::JsonValue::CreateStringValue(c.text));
+        if (w->kind == WidgetKind::FileZone && !c.fileLayout.empty())
+            e.SetNamedValue(L"fileLayout", json::JsonValue::CreateStringValue(c.fileLayout));
         if (w->kind == WidgetKind::Reminders) {
             json::JsonArray items;
             for (const Reminder& r : c.items) {
@@ -539,6 +644,7 @@ void DesktopWidgets::Save() const
             list.Append(e);
     json::JsonObject o;
     o.SetNamedValue(L"widgets", list);
+    if (!dataDirectory_.empty()) o.SetNamedValue(L"codexQuotaIntroduced", json::JsonValue::CreateBooleanValue(quotaIntroduced_));
     if (!WriteTextFile(LayoutPath(), std::wstring(o.Stringify())))
         Log(L"widgets: could not save the layout");
 }
@@ -576,6 +682,23 @@ void DesktopWidgets::Build()
         w.surface->paint = [this, &w](Canvas& c) { Paint(w, c); };
         w.surface->message = [this, &w](UINT m, WPARAM wp2, LPARAM lp, LRESULT& r) { return Message(w, m, wp2, lp, r); };
         Place(w, false);
+        if (w.kind == WidgetKind::CodexQuota) SetWindowTextW(w.surface->Hwnd(), L"桌屿 · Codex 额度");
+        if (w.kind == WidgetKind::FileZone) {
+            SetWindowTextW(w.surface->Hwnd(), (L"桌屿 · " + w.content.text).c_str());
+            auto target = winrt::make_self<ZoneDropTarget>();
+            target->highlight = [&w](bool on) { w.content.dropHover = on; w.surface->Invalidate(); };
+            target->accept = [this, &w](const std::wstring& path, bool commit) {
+                if (path.empty() || !FileAction(commit ? L"move" : L"canMove", w.content.text, path)) return false;
+                if (commit) {
+                    auto split = path.find(L'\n');
+                    w.revealDrop = path.substr(0, split);
+                    w.content.lastDrop = split == std::wstring::npos ? path : L"";
+                }
+                return true;
+            };
+            if (SUCCEEDED(RegisterDragDrop(w.surface->Hwnd(), target.get()))) w.dropTarget = target.as<IDropTarget>();
+            else Log(L"widgets: unable to register file drop target");
+        }
         if (w.kind == WidgetKind::Photos)
             LoadPhoto(w, true);
     }
@@ -681,6 +804,7 @@ void DesktopWidgets::RemoveNow(Widget& w)
         return;
     std::unique_ptr<Widget> gone = std::move(*it);
     widgets_.erase(it);
+    viewVersion_ = 0;
     if (gone->surface)
         gone->surface->Hide(false);
     Save();
@@ -695,6 +819,7 @@ void DesktopWidgets::Resize(Widget& w, WidgetSize size)
     if (!Fits(c, r, size, &w) && !FreeCellNear(float(c), float(r), size, &w, c, r))
         return;
     w.size = size;
+    viewVersion_ = 0;
     w.col = c;
     w.row = r;
     Place(w, true);
@@ -940,8 +1065,243 @@ LRESULT CALLBACK DesktopWidgets::HostProc(HWND h, UINT m, WPARAM w, LPARAM l)
     return DefWindowProcW(h, m, w, l);
 }
 
+bool DesktopWidgets::FileAction(const std::wstring& action, const std::wstring& zone, const std::wstring& path)
+{
+    if (!fileOwner_ || !IsWindow(fileOwner_)) return false;
+    std::wstring payload = action + L"\n" + zone + L"\n" + path;
+    COPYDATASTRUCT packet{0x44534631, DWORD(payload.size() * sizeof(wchar_t)), payload.data()};
+    DWORD_PTR result = 0;
+    return SendMessageTimeoutW(fileOwner_, WM_COPYDATA, reinterpret_cast<WPARAM>(host_), reinterpret_cast<LPARAM>(&packet),
+                               SMTO_ABORTIFHUNG | SMTO_BLOCK, 1200, &result) && result;
+}
+
+void DesktopWidgets::AttachMenuDrop(HWND hwnd, std::function<std::wstring(POINT)> zoneAt)
+{
+    if (!zoneOle_ || !hwnd) return;
+    auto target = winrt::make_self<ZoneDropTarget>();
+    target->zoneAt = std::move(zoneAt);
+    target->highlight = [](bool) {};
+    target->accept = [this, t = target.get()](const std::wstring& paths, bool commit) {
+        return !paths.empty() && FileAction(commit ? L"move" : L"canMove", t->zone, paths);
+    };
+    if (SUCCEEDED(RegisterDragDrop(hwnd, target.get()))) menuDropWindow_ = hwnd;
+}
+
+void DesktopWidgets::DragFile(HWND owner, const std::wstring& path)
+{
+    winrt::com_ptr<IShellItem> item;
+    winrt::com_ptr<IDataObject> data;
+    if (SUCCEEDED(SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(item.put()))) &&
+        SUCCEEDED(item->BindToHandler(nullptr, BHID_DataObject, IID_PPV_ARGS(data.put())))) {
+        DWORD effect = 0;
+        SHDoDragDrop(owner, data.get(), nullptr, DROPEFFECT_COPY, &effect);
+    }
+}
+
+std::wstring DesktopWidgets::FileHit(const Widget& w, LPARAM point) const
+{
+    if (w.kind != WidgetKind::FileZone) return {};
+    const float x = GET_X_LPARAM(point) / w.surface->Scale(), y = GET_Y_LPARAM(point) / w.surface->Scale();
+    for (const auto& hit : w.hits)
+        if (x >= hit.rect.left && x < hit.rect.right && y >= hit.rect.top && y < hit.rect.bottom) return hit.id;
+    return {};
+}
+
+void DesktopWidgets::SyncFileZones()
+{
+    if (dataDirectory_.empty()) return;
+    const auto path = dataDirectory_ + L"\\view.json";
+    WIN32_FILE_ATTRIBUTE_DATA attr{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)) return;
+    ULARGE_INTEGER stamp{};
+    stamp.LowPart = attr.ftLastWriteTime.dwLowDateTime;
+    stamp.HighPart = attr.ftLastWriteTime.dwHighDateTime;
+    if (stamp.QuadPart == viewVersion_) return;
+    json::JsonArray zones{nullptr};
+    if (!json::JsonArray::TryParse(ReadTextFile(path), zones)) return;
+    std::set<std::wstring> desktopNames, menuNames;
+    for (const auto& value : zones) {
+        auto obj = value.GetObject();
+        (obj.GetNamedBoolean(L"InStartMenu", false) ? menuNames : desktopNames).emplace(obj.GetNamedString(L"Name"));
+    }
+    std::erase_if(menuZones, [&](const auto& pair) { return !menuNames.contains(pair.first); });
+    menuZoneOrder_.clear();
+    for (const auto* name : {L"文档", L"文件夹", L"常用入口"})
+        if (menuNames.contains(name)) menuZoneOrder_.emplace_back(name);
+    for (const auto& name : menuNames)
+        if (std::find(menuZoneOrder_.begin(), menuZoneOrder_.end(), name) == menuZoneOrder_.end())
+            menuZoneOrder_.push_back(name);
+    auto removed = std::erase_if(widgets_, [&](const auto& w) {
+        return w->kind == WidgetKind::FileZone && !desktopNames.contains(w->content.text);
+    });
+    removed += std::erase_if(unplaced_, [&](const std::wstring& saved) {
+        json::JsonObject obj{nullptr};
+        return json::JsonObject::TryParse(saved, obj) && obj.GetNamedString(L"kind", L"") == L"file-zone" &&
+               !desktopNames.contains(std::wstring(obj.GetNamedString(L"text", L"")));
+    });
+    bool added = false, overflow = false;
+    decltype(searchItems_) searchable;
+    for (const auto& value : zones) {
+        auto zone = value.GetObject();
+        std::wstring name(zone.GetNamedString(L"Name"));
+        auto it = std::find_if(widgets_.begin(), widgets_.end(), [&](const auto& w) {
+            return w->kind == WidgetKind::FileZone && w->content.text == name;
+        });
+        Widget* widget = nullptr;
+        const bool inMenu = menuNames.contains(name);
+        if (!inMenu && enabled_ && it == widgets_.end()) {
+            int col, row;
+            WidgetSize size = WidgetSize::Small;
+            // Leave at least one cell per other file zone on a compact display.
+            if (Cols() * Rows() >= int(zones.Size()) * 2 + 6 && FreeCellNear(0, 0, WidgetSize::Medium, nullptr, col, row))
+                size = WidgetSize::Medium;
+            else if (!FreeCellNear(0, 0, size, nullptr, col, row)) col = -1;
+            if (col >= 0) {
+                widget = &Create(WidgetKind::FileZone, size, col, row);
+                widget->content.text = name;
+                added = true;
+            } else overflow = true;
+        } else if (!inMenu && it != widgets_.end()) widget = it->get();
+        WidgetContent undisplayed;
+        auto& c = inMenu ? menuZones[name] : widget ? widget->content : undisplayed;
+        c.text = name;
+        std::map<std::wstring, WidgetContent::File> previous;
+        for (auto& file : c.files) {
+            auto oldPath = file.path;
+            previous.emplace(std::move(oldPath), std::move(file));
+        }
+        c.files.clear();
+        for (const auto& v : zone.GetNamedArray(L"Files")) {
+            auto f = v.GetObject();
+            auto& file = c.files.emplace_back(WidgetContent::File{std::wstring(f.GetNamedString(L"Name")), std::wstring(f.GetNamedString(L"Path")),
+                f.GetNamedBoolean(L"Folder", false), f.GetNamedBoolean(L"Collected", false), f.GetNamedBoolean(L"OnDesktop", false),
+                std::wstring(f.GetNamedString(L"Modified", L"")), {}});
+            auto old = previous.find(file.path);
+            if (old != previous.end() && old->second.modified == file.modified) {
+                file.icon = std::move(old->second.icon);
+                previous.erase(old);
+            }
+            if (widget && !widget->revealDrop.empty() && f.GetNamedString(L"DropOrigin", L"") == widget->revealDrop) {
+                if (!c.lastDrop.empty()) c.lastDrop = file.path;
+                widget->revealDrop = file.path;
+            }
+            searchable.push_back(std::make_shared<ZoneSearchItem>(ZoneSearchItem{name, file}));
+        }
+        if (!widget) continue;
+        if (widget->surface) for (const auto& old : previous) widget->surface->ForgetImage(old.first);
+        if (!c.lastDrop.empty() && std::none_of(c.files.begin(), c.files.end(), [&](const auto& f) { return f.path == c.lastDrop; })) c.lastDrop.clear();
+        const auto layout = LayoutFileZone(c, widget->size);
+        if (!widget->revealDrop.empty()) {
+            auto found = std::find_if(c.files.begin(), c.files.end(), [&](const auto& f) { return _wcsicmp(f.path.c_str(), widget->revealDrop.c_str()) == 0; });
+            if (found != c.files.end()) {
+                c.scroll = layout.RowOffset(size_t(found - c.files.begin()));
+                widget->revealDrop.clear();
+            }
+        }
+        c.scroll = std::clamp(c.scroll, 0.f, layout.maxScroll);
+        if (widget->surface) widget->surface->Invalidate();
+    }
+    searchItems_ = std::move(searchable);
+    if (enabled_ && !quotaIntroduced_ && !overflow) AddQuota();
+    if (enabled_ && (added || removed)) { Build(); Save(); Restack(); }
+    if (!viewVersion_) FileAction(overflow ? L"overflow" : L"ready");
+    viewVersion_ = stamp.QuadPart;
+}
+
+bool DesktopWidgets::AddQuota()
+{
+    for (const auto& w : widgets_) if (w->kind == WidgetKind::CodexQuota) return true;
+    int col, row;
+    WidgetSize size = WidgetSize::Medium;
+    if (!FreeCellNear(float(Cols() - 1), 0, size, nullptr, col, row)) {
+        size = WidgetSize::Small;
+        if (!FreeCellNear(float(Cols() - 1), 0, size, nullptr, col, row)) return false;
+    }
+    Create(WidgetKind::CodexQuota, size, col, row);
+    std::erase_if(unplaced_, [](const std::wstring& saved) {
+        json::JsonObject entry{nullptr};
+        return json::JsonObject::TryParse(saved, entry) && entry.GetNamedString(L"kind", L"") == L"codex-quota";
+    });
+    quotaIntroduced_ = true;
+    nextQuotaRead_ = quotaVersion_ = 0;
+    Build(); Save(); Restack();
+    return true;
+}
+
+void DesktopWidgets::SyncQuota()
+{
+    if (dataDirectory_.empty()) return;
+    auto it = std::find_if(widgets_.begin(), widgets_.end(), [](const auto& w) { return w->kind == WidgetKind::CodexQuota; });
+    if (it == widgets_.end()) return;
+    auto& w = **it;
+    const auto path = dataDirectory_ + L"\\codex-quota.json";
+    WIN32_FILE_ATTRIBUTE_DATA attr{};
+    ULARGE_INTEGER stamp{};
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)) {
+        stamp.LowPart = attr.ftLastWriteTime.dwLowDateTime;
+        stamp.HighPart = attr.ftLastWriteTime.dwHighDateTime;
+    }
+    // On startup wait for this session's account check before displaying any previous snapshot.
+    if (!nextQuotaRead_) quotaVersion_ = stamp.QuadPart;
+    const auto now = GetTickCount64();
+    if (now >= nextQuotaRead_)
+        nextQuotaRead_ = now + (FileAction(L"quotaRefresh") && !w.content.quotaStatus.empty() ? 300000 : 10000);
+    if (!stamp.QuadPart || stamp.QuadPart == quotaVersion_) return;
+    json::JsonObject data{nullptr};
+    if (!json::JsonObject::TryParse(ReadTextFile(path), data)) return;
+    try {
+        std::vector<WidgetContent::Limit> limits;
+        for (const auto& item : data.GetNamedArray(L"Windows")) {
+            auto row = item.GetObject();
+            auto remaining = row.GetNamedNumber(L"Remaining");
+            if (remaining >= 0 && remaining <= 100 && limits.size() < 2)
+                limits.push_back({std::wstring(row.GetNamedString(L"Label")), std::wstring(row.GetNamedString(L"Reset", L"")), remaining});
+        }
+        w.content.quotaStatus = data.GetNamedString(L"Status", L"同步失败");
+        w.content.quotaUpdated = data.HasKey(L"Updated") && data.GetNamedValue(L"Updated").ValueType() == json::JsonValueType::String ?
+            std::wstring(data.GetNamedString(L"Updated")) : L"";
+        w.content.limits = std::move(limits);
+        quotaVersion_ = stamp.QuadPart;
+        nextQuotaRead_ = now + 300000;
+        if (w.surface) {
+            std::wstring title = L"桌屿 · Codex 额度 · " + w.content.quotaStatus;
+            for (const auto& limit : w.content.limits) {
+                wchar_t remain[20]{};
+                swprintf_s(remain, L" %.0f%%", limit.remaining);
+                title += L" · " + limit.label + L"剩余" + remain;
+                if (!limit.reset.empty()) title += L"，重置 " + limit.reset;
+            }
+            SetWindowTextW(w.surface->Hwnd(), title.c_str());
+            w.surface->Invalidate();
+        }
+    } catch (const winrt::hresult_error&) { /* Retry an incomplete snapshot on the next tick. */ }
+}
+
+void DesktopWidgets::SyncWeatherCity()
+{
+    if (dataDirectory_.empty()) return;
+    auto path = dataDirectory_ + L"\\weather-city.json";
+    WIN32_FILE_ATTRIBUTE_DATA attr{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)) return;
+    ULARGE_INTEGER stamp{};
+    stamp.HighPart = attr.ftLastWriteTime.dwHighDateTime;
+    stamp.LowPart = attr.ftLastWriteTime.dwLowDateTime;
+    if (weatherCityVersion_ == stamp.QuadPart) return;
+    json::JsonObject selection{nullptr};
+    try {
+        if (!json::JsonObject::TryParse(ReadTextFile(path), selection)) return;
+        auto city = std::wstring(selection.GetNamedString(L"City"));
+        weather_->SetLocation(city, selection.GetNamedNumber(L"Latitude"), selection.GetNamedNumber(L"Longitude"),
+                              dataDirectory_ + L"\\weather-manual-cache.json");
+        weatherCityVersion_ = stamp.QuadPart;
+    } catch (const winrt::hresult_error&) { return; }
+}
+
 void DesktopWidgets::Tick()
 {
+    SyncWeatherCity();
+    SyncFileZones();
+    SyncQuota();
     SYSTEMTIME t;
     GetLocalTime(&t);
     bool minute = t.wMinute != lastMinute_;
@@ -964,7 +1324,7 @@ void DesktopWidgets::Tick()
     for (auto& w : widgets_) {
         if (!w->surface)
             continue;
-        if (w->kind == WidgetKind::Clock || minute || (sample && w->kind == WidgetKind::System) || (watching && w->kind == WidgetKind::Network))
+        if (w->content.awaitingFileIcons || w->kind == WidgetKind::Clock || minute || (sample && w->kind == WidgetKind::System) || (watching && w->kind == WidgetKind::Network))
             w->surface->Invalidate();
         if (w->kind == WidgetKind::Photos && w->photoAt && now - w->photoAt > kPhotoMs)
             LoadPhoto(*w, true);
@@ -973,15 +1333,6 @@ void DesktopWidgets::Tick()
 
 void DesktopWidgets::SampleSystem()
 {
-    auto u64 = [](FILETIME f) { return (uint64_t(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
-    FILETIME idle, kernel, user;
-    if (GetSystemTimes(&idle, &kernel, &user)) {
-        uint64_t i = u64(idle), total = u64(kernel) + u64(user); // kernel time includes idle time
-        if (cpuTotal_ && total > cpuTotal_)
-            world_.cpu = std::clamp(1.f - float(double(i - cpuIdle_) / double(total - cpuTotal_)), 0.f, 1.f);
-        cpuIdle_ = i;
-        cpuTotal_ = total;
-    }
     MEMORYSTATUSEX ms{sizeof(ms)};
     if (GlobalMemoryStatusEx(&ms)) {
         constexpr double kGb = 1024.0 * 1024 * 1024;
@@ -1062,6 +1413,8 @@ void DesktopWidgets::LoadPhoto(Widget& w, bool another)
 
 bool DesktopWidgets::Message(Widget& w, UINT m, WPARAM wp, LPARAM lp, LRESULT& r)
 {
+    if (shellMenuMessage_ && (m == WM_INITMENUPOPUP || m == WM_DRAWITEM || m == WM_MEASUREITEM || m == WM_MENUCHAR))
+        return shellMenuMessage_(m, wp, lp, r);
     switch (m) {
     case WM_WINDOWPOSCHANGING: {
         // Activation still gives editable widgets keyboard focus, without changing their layer.
@@ -1071,6 +1424,14 @@ bool DesktopWidgets::Message(Widget& w, UINT m, WPARAM wp, LPARAM lp, LRESULT& r
         return false;
     }
     case WM_MOUSEWHEEL:
+        if (w.kind == WidgetKind::FileZone) {
+            const auto layout = LayoutFileZone(w.content, w.size);
+            w.content.scroll = std::clamp(std::min(w.content.scroll, layout.maxScroll) - float(GET_WHEEL_DELTA_WPARAM(wp)) / WHEEL_DELTA * layout.rowPitch,
+                                          0.f, layout.maxScroll);
+            w.content.hoveredFile.clear();
+            w.surface->Invalidate();
+            return true;
+        }
         if (w.kind != WidgetKind::Reminders)
             return false;
         w.content.scroll = std::clamp(w.content.scroll - float(GET_WHEEL_DELTA_WPARAM(wp)) / WHEEL_DELTA * kReminderRow * 3,
@@ -1089,6 +1450,7 @@ bool DesktopWidgets::Message(Widget& w, UINT m, WPARAM wp, LPARAM lp, LRESULT& r
     }
     case WM_MOUSELEAVE:
         w.tracking = false;
+        w.content.hoveredFile.clear();
         if (w.hover && !w.down) {
             w.hover = false;
             w.surface->Invalidate();
@@ -1102,6 +1464,7 @@ bool DesktopWidgets::Message(Widget& w, UINT m, WPARAM wp, LPARAM lp, LRESULT& r
         int grip = GripAt(w, w.downAt);
         w.growLeft = grip < 0;
         w.resizing = grip != 0;
+        w.pressedFile = w.resizing ? L"" : FileHit(w, lp);
         w.downSize = w.size;
         w.downCol = w.col;
         if (w.resizing) {
@@ -1113,6 +1476,13 @@ bool DesktopWidgets::Message(Widget& w, UINT m, WPARAM wp, LPARAM lp, LRESULT& r
         return true;
     }
     case WM_MOUSEMOVE: {
+        if (w.kind == WidgetKind::FileZone && !w.down) {
+            auto file = FileHit(w, lp);
+            if (w.content.hoveredFile != file) {
+                w.content.hoveredFile = std::move(file);
+                w.surface->Invalidate();
+            }
+        }
         if (!w.tracking) {
             TRACKMOUSEEVENT t{sizeof(t), TME_LEAVE, w.surface->Hwnd(), 0};
             w.tracking = TrackMouseEvent(&t) != FALSE;
@@ -1131,6 +1501,14 @@ bool DesktopWidgets::Message(Widget& w, UINT m, WPARAM wp, LPARAM lp, LRESULT& r
         }
         int dx = p.x - w.downAt.x, dy = p.y - w.downAt.y;
         if (!w.dragging && std::abs(dx) + std::abs(dy) > int(6 * Scale())) {
+            if (!w.pressedFile.empty()) {
+                const auto path = std::exchange(w.pressedFile, {});
+                w.down = false;
+                ReleaseCapture();
+                if (path == L"learn") return true;
+                DragFile(w.surface->Hwnd(), path);
+                return true;
+            }
             w.dragging = true;
             w.glideMs = 0;
             EndEdit(w);
@@ -1159,6 +1537,7 @@ bool DesktopWidgets::Message(Widget& w, UINT m, WPARAM wp, LPARAM lp, LRESULT& r
             if (w.glideMs <= 0)
                 w.surface->ReserveResize(D2D1::SizeF());
             if (w.size != w.downSize) {
+                viewVersion_ = 0;
                 if (w.kind == WidgetKind::Photos)
                     LoadPhoto(w, false); // the same photo, cropped for the new size
                 Save();
@@ -1185,7 +1564,18 @@ bool DesktopWidgets::Message(Widget& w, UINT m, WPARAM wp, LPARAM lp, LRESULT& r
             Restack();
             Log(L"widgets: %s moved to %d,%d", NameOf(w.kind), w.col, w.row);
         } else if (m == WM_LBUTTONUP) {
-            if (Editable(w.kind))
+            if (w.kind == WidgetKind::FileZone) {
+                if (w.pressedFile == L"learn" && FileAction(L"learn", w.content.text, w.content.lastDrop)) {
+                    w.content.lastDrop.clear(); w.surface->Invalidate();
+                } else if (!w.pressedFile.empty() && w.pressedFile != L"learn") {
+                    const auto now = GetTickCount64();
+                    if (w.clickedFile == w.pressedFile && now - w.clickedAt <= GetDoubleClickTime()) {
+                        FileAction(L"open", w.content.text, w.pressedFile);
+                        w.clickedFile.clear();
+                    } else w.clickedFile = w.pressedFile;
+                    w.clickedAt = now;
+                }
+            } else if (Editable(w.kind))
                 Click(w, POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
             else
                 Activate(w);
@@ -1193,7 +1583,7 @@ bool DesktopWidgets::Message(Widget& w, UINT m, WPARAM wp, LPARAM lp, LRESULT& r
         return true;
     }
     case WM_RBUTTONUP:
-        Menu(w);
+        Menu(w, FileHit(w, lp));
         return true;
     case WM_LBUTTONDBLCLK:
     case WM_RBUTTONDOWN:
@@ -1220,6 +1610,9 @@ void DesktopWidgets::Activate(Widget& w)
     w.surface->Ripple(float(c.x) / s, float(c.y) / s);
     std::wstring open;
     switch (w.kind) {
+    case WidgetKind::CodexQuota:
+        FileAction(L"quotaRefresh");
+        break;
     case WidgetKind::Clock:
     case WidgetKind::Digital:
         open = L"ms-clock:";
@@ -1494,11 +1887,70 @@ void DesktopWidgets::PickCity(Widget& w, POINT at)
     });
 }
 
-void DesktopWidgets::Menu(Widget& w)
+bool DesktopWidgets::ShellMenuMessage(UINT m, WPARAM w, LPARAM l, LRESULT& result)
 {
+    return shellMenuMessage_ && (m == WM_INITMENUPOPUP || m == WM_DRAWITEM || m == WM_MEASUREITEM || m == WM_MENUCHAR)
+           && shellMenuMessage_(m, w, l, result);
+}
+
+void DesktopWidgets::FileMenu(HWND owner, std::wstring zone, WidgetContent::File file)
+{
+    if (shellMenuMessage_) return;
+    HMENU popup = CreatePopupMenu();
+    if (!popup) return;
+    constexpr UINT firstVerb = 1, lastVerb = 0x6fff, open = 0x7000, rename = 0x7001, collect = 0x7002, restore = 0x7003;
+    winrt::com_ptr<IShellItem> item;
+    winrt::com_ptr<IContextMenu> context;
+    if (SUCCEEDED(SHCreateItemFromParsingName(file.path.c_str(), nullptr, IID_PPV_ARGS(item.put()))))
+        item->BindToHandler(nullptr, BHID_SFUIObject, IID_PPV_ARGS(context.put()));
+    UINT flags = CMF_NORMAL | ((GetKeyState(VK_SHIFT) & 0x8000) ? CMF_EXTENDEDVERBS : 0);
+    if (!context || FAILED(context->QueryContextMenu(popup, 0, firstVerb, lastVerb, flags)))
+        AppendMenuW(popup, MF_STRING, open, L"打开");
+    AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(popup, MF_STRING, rename, L"重命名…");
+    AppendMenuW(popup, MF_STRING, 0x7004, L"记住归类规则…");
+    if (file.onDesktop) AppendMenuW(popup, MF_STRING, collect, L"收纳到此分区");
+    if (file.collected) AppendMenuW(popup, MF_STRING, restore, L"放回原桌面");
+
+    auto menu3 = context ? context.try_as<IContextMenu3>() : nullptr;
+    auto menu2 = context ? context.try_as<IContextMenu2>() : nullptr;
+    shellMenuMessage_ = [&](UINT m, WPARAM wp, LPARAM lp, LRESULT& result) {
+        result = 0;
+        if (menu3) return menu3->HandleMenuMsg2(m, wp, lp, &result) == S_OK;
+        return menu2 && m != WM_MENUCHAR && menu2->HandleMenuMsg(m, wp, lp) == S_OK;
+    };
+    POINT pt;
+    GetCursorPos(&pt);
+    SetForegroundWindow(owner);
+    UINT cmd = TrackPopupMenuEx(popup, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, owner, nullptr);
+    shellMenuMessage_ = {};
+    DestroyMenu(popup);
+    if (cmd >= firstVerb && cmd <= lastVerb && context) {
+        CMINVOKECOMMANDINFOEX invoke{sizeof(invoke)};
+        invoke.fMask = CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE;
+        invoke.hwnd = owner;
+        invoke.lpVerb = MAKEINTRESOURCEA(cmd - firstVerb);
+        invoke.lpVerbW = MAKEINTRESOURCEW(cmd - firstVerb);
+        invoke.nShow = SW_SHOWNORMAL;
+        invoke.ptInvoke = pt;
+        context->InvokeCommand(reinterpret_cast<LPCMINVOKECOMMANDINFO>(&invoke));
+    } else if (cmd == open) FileAction(L"open", zone, file.path);
+    else if (cmd == rename) FileAction(L"rename", zone, file.path);
+    else if (cmd == collect) FileAction(L"collect", zone, file.path);
+    else if (cmd == restore) FileAction(L"restore", zone, file.path);
+    else if (cmd == 0x7004) FileAction(L"learn", zone, file.path);
+}
+
+void DesktopWidgets::Menu(Widget& w, const std::wstring& hit)
+{
+    if (w.kind == WidgetKind::FileZone && !hit.empty() && hit != L"learn") {
+        auto file = std::find_if(w.content.files.begin(), w.content.files.end(), [&](const auto& f) { return f.path == hit; });
+        if (file != w.content.files.end()) FileMenu(w.surface->Hwnd(), w.content.text, *file);
+        return;
+    }
     if (!menu)
         return;
-    enum { kSmall = 1, kMedium, kLarge, kRemove, kFolder, kNextPhoto, kClearDone, kAdd, kCities };
+    enum { kSmall = 1, kMedium, kLarge, kRemove, kFolder, kNextPhoto, kClearDone, kAdd, kCities, kFileGrid, kFileCards };
     std::vector<MenuEntry> entries;
     auto size = [&](int id, WidgetSize s, const wchar_t* label) { entries.push_back({label, id, w.size == s, !WidgetSupports(w.kind, s)}); };
     size(kSmall, WidgetSize::Small, Tr(L"Small"));
@@ -1519,7 +1971,20 @@ void DesktopWidgets::Menu(Widget& w)
         entries.push_back({Tr(L"Clear completed"), kClearDone, false, !anyDone});
         entries.push_back({});
     }
-    entries.push_back({Tr(L"Remove widget"), kRemove});
+    if (w.kind == WidgetKind::CodexQuota) entries.push_back({L"刷新 Codex 额度", 104});
+    if (w.kind == WidgetKind::Weather && fileOwner_) entries.push_back({L"天气城市…", 105});
+    if (fileOwner_ && std::none_of(widgets_.begin(), widgets_.end(), [](const auto& item) { return item->kind == WidgetKind::CodexQuota; }))
+        entries.push_back({L"添加 Codex 额度", 103});
+    if (w.kind == WidgetKind::FileZone) {
+        bool grid = LayoutFileZone(w.content, w.size).grid;
+        entries.push_back({L"图标网格", kFileGrid, grid});
+        entries.push_back({L"文件卡片", kFileCards, !grid});
+        entries.push_back({});
+        entries.push_back({L"新建文件分区…", 101});
+        entries.push_back({L"管理分类规则…", 102});
+        entries.push_back({L"移入开始菜单", 107});
+        entries.push_back({L"解散分区…", 106});
+    } else entries.push_back({Tr(L"Remove widget"), kRemove});
     entries.push_back({Tr(L"Add Widgets…"), kAdd});
     POINT p;
     GetCursorPos(&p);
@@ -1534,6 +1999,27 @@ void DesktopWidgets::Menu(Widget& w)
             return; // gone while the menu was open
         Widget& w = *target;
         switch (cmd) {
+        case 101: FileAction(L"new"); break;
+        case 102: FileAction(L"manage"); break;
+        case 106: FileAction(L"dissolve", w.content.text); break;
+        case 107: FileAction(L"menuZone", w.content.text); break;
+        case 105: FileAction(L"weatherCity"); break;
+        case kFileGrid:
+        case kFileCards: {
+            const auto before = LayoutFileZone(w.content, w.size);
+            const size_t first = size_t(std::min(w.content.scroll, before.maxScroll) / before.rowPitch) * before.columns;
+            w.content.fileLayout = cmd == kFileGrid ? L"grid" : L"cards";
+            const auto after = LayoutFileZone(w.content, w.size);
+            w.content.scroll = std::min(after.RowOffset(first), after.maxScroll);
+            w.content.hoveredFile.clear();
+            w.surface->Invalidate();
+            Save();
+            break;
+        }
+        case 103:
+            if (!AddQuota()) MessageBoxW(host_, L"请先缩小或移除一个组件，留出一格空间。", L"Codex 额度", MB_OK);
+            break;
+        case 104: FileAction(L"quotaRefresh"); break;
         case kSmall:
         case kMedium:
         case kLarge:
