@@ -24,21 +24,37 @@ jobs:
         run: ./tools/tests/check-localization.tests.ps1
       - name: Enable native regression checks
         shell: pwsh
-        run: cmake --preset win-x64 -S native -DATRIUM_BUILD_TESTS=ON -DATRIUM_DEVELOPMENT=OFF
-      - name: Build native, settings and the portable package
+        run: cmake --preset win-x64 -S native -DATRIUM_BUILD_TESTS=ON -DATRIUM_DEVELOPMENT=ON
+      - name: Build DeskIslet
         shell: pwsh
-        run: ./tools/build.ps1 -Zip
+        run: ./deskislet/build.ps1 -NativeBuild "$PWD/native/build/win-x64"
       - name: Run native and settings regression checks
         shell: pwsh
         run: |
+          cmake --build native/build/win-x64 --config Release
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           ctest --test-dir native/build/win-x64 -C Release --output-on-failure
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           dotnet run --project tests/SettingsChecks/SettingsChecks.csproj -c Release
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           dotnet run --project tests/LocalizationChecks/LocalizationChecks.csproj -c Release
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Test DeskIslet
+        shell: powershell
+        run: |
+          ./deskislet/tests/Catalog.Tests.ps1
+          ./deskislet/tests/CodexQuota.Tests.ps1
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $nsis = "${env:ProgramFiles(x86)}/NSIS/makensis.exe"
+          if (!(Test-Path -LiteralPath $nsis)) {
+            choco install nsis -y --no-progress
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          ./deskislet/installer/pack.ps1 -MakeNsis $nsis
       - uses: actions/upload-artifact@v7
         with:
-          name: Atrium-win-x64
-          path: dist/*.zip
+          name: DeskIslet-win-x64
+          path: deskislet/dist/DeskIslet-Setup-x64.exe
           if-no-files-found: error

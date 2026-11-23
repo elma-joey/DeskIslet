@@ -1,169 +1,60 @@
-<p align="center">
-  <img src="assets/atrium-256.png" alt="Atrium Desktop" width="112">
-</p>
+# 桌屿 · DeskIslet
 
-<h1 align="center">Atrium Desktop</h1>
+DeskIslet 是基于 [Atrium Desktop v2.7.0](https://github.com/wynter-yaxley/atrium-desktop/tree/v2.7.0) 的 Windows 11 x64 桌面工具。它把文件分区、桌面小组件和录屏入口放进同一个桌面与 Dock。文件可以按规则自动收纳，也可以拖到其他分区并记住分类。
 
-<p align="center">
-  <b>不仅仅是桌面美化。</b><br>
-  保留 Windows 的用法，换上一块实时折射的液态玻璃，<br>
-  再用同一套设计语言，把任务栏、开始菜单、控制中心、通知和小组件连成一个整体。
-</p>
+构建后运行 **DeskIslet-Setup-x64.exe**，从开始菜单打开「桌屿」。运行需要 .NET Framework 4.8 和支持 Direct3D 11 的显卡。
 
-<p align="center">
-  <a href="https://github.com/wynter-yaxley/atrium-desktop/releases/latest"><b>下载</b></a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#功能"><b>功能</b></a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#开始使用"><b>开始使用</b></a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="README_EN.md"><b>English</b></a>
-</p>
+## 在桌面上使用
 
-<p align="center">
-  <a href="https://github.com/wynter-yaxley/atrium-desktop/releases/latest"><img src="https://img.shields.io/github/v/release/wynter-yaxley/atrium-desktop?style=flat-square&label=version&labelColor=1d1d1f&color=3a3a3c" alt="version"></a>
-  <a href="https://github.com/wynter-yaxley/atrium-desktop/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/wynter-yaxley/atrium-desktop/build.yml?branch=main&style=flat-square&label=build&labelColor=1d1d1f" alt="build"></a>
-  <img src="https://img.shields.io/badge/Windows-11-3a3a3c?style=flat-square&labelColor=1d1d1f" alt="Windows 11">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/wynter-yaxley/atrium-desktop?style=flat-square&labelColor=1d1d1f&color=3a3a3c" alt="license"></a>
-</p>
+新安装的软件在个人或公共桌面创建指向 EXE 的快捷方式后，桌屿会自动将它收进匹配的分区。升级前已有的快捷方式和手动放回桌面的快捷方式保留在桌面。同一分区已有同名且启动设置相同的入口时，新快捷方式会单独备份。默认备份目录为 `%LOCALAPPDATA%\Deskfold\重复快捷方式`。
 
-<p align="center">
-  <img src="docs/images/readme/hero.jpg" alt="Atrium Desktop" width="100%">
-</p>
+「文档」「文件夹」「常用入口」默认显示在 Dock 开始菜单的固定应用下方。每栏可独立滚动，单击打开，右键操作文件。拖住桌面文件在 Dock 开始按钮上停留，菜单展开后即可拖入目标分区。右键分区标题可将它移回桌面，或选择「解散分区」并确认将已收纳的项目放回原桌面。
 
-## 不仅仅是桌面美化
+右键桌面上任一文件分区的标题或空白处，选择「移入开始菜单」即可把整栏放进弹窗。分区较多时，用分区两侧的箭头翻页。
 
-Windows 的桌面是几代设计叠起来的：任务栏、托盘、开始菜单、通知、快捷设置，各有各的圆角、字号和动画。Atrium 把每天看到的这一层重新做了一遍，但没有改变你用 Windows 的方式。
+开始菜单顶部的搜索框也能按名称查找各个分区中的项目，包括放在桌面的分区。结果右侧显示所属分区，单击或按回车可打开。
 
-- **用法不变**：固定应用、切换窗口、右键菜单、把文件拖到应用图标上打开，都和原来一样。
-- **同一块玻璃**：栏、面板、菜单、通知和小组件用的是同一种材质，实时映出背后的桌面。
-- **同一套设计语言**：圆角、间距、字体和动画遵循同一套规则，同一种控件在哪里都是同样的手感。
-- **三个独立模块**：任务栏、桌面小组件和台前调度可以分别打开，只用其中一个也行。
-- **中英文界面**：设置中心的“系统 → 语言”可选择简体中文、English，或跟随 Windows；栏、面板、菜单、通知、小组件和设置中心一起切换。语言文案在 `locales/` 下，每门语言一个 JSON 文件；没有翻译的词条回退英文。
-- **干净**：不向系统进程注入代码，不改系统文件，不装服务，不需要管理员权限。退出后，Windows 自己的任务栏照常回来。
+- **摆放**：按 Win + D 返回桌面。拖动一个分区的标题或空白区域，在网格上松手即可吸附。每个分区有独立的位置和尺寸。
+- **分区排版**：常用入口和文件夹默认用图标网格，文档默认用文件卡片。右键标题或空白处可为每个分区切换样式。右键具体项目打开该文件的 Windows 菜单，桌面原件还有「收纳到此分区」入口。
+- **调整尺寸**：将鼠标移到分区底角，拖动出现的弧形握把。右键也可选择小、中、大。组件按 Atrium 的一格、两格横向或四格布局变化，需要相邻的空位。
+- **收纳**：把 Windows 桌面的文件、文件夹或快捷方式拖到分区，松手后原图标从桌面消失。分区里显示 Windows 文件图标，双击可打开。右键已收纳的项目可「放回原桌面」。收纳和放回遇到同名项目会自动编号。
+- **一键整理**：右键桌面空白处，选择「一键整理桌面」。Windows 11 的简化菜单可先点「显示更多选项」。这会按现有规则收纳可移动的个人和公共桌面项目。公共桌面项目的移动也会影响该电脑上的其他用户。系统虚拟图标由 Windows 管理。
+- **记住规则**：纠正后，目标组件底部出现「记住规则…」。点它、调整文件名关键词，预览命中结果后保存。以后同类文件会自动进入该分区。
+- **创建项目分区**：右键任一文件组件，选择「新建文件分区」或「管理分类规则」。桌面只显示独立小组件，需要完整管理窗口时可从托盘菜单手动打开。
+- **Dock 与材质**：底部 Dock 的时钟旁显示整台电脑的 CPU 和物理内存占用百分比，约每 3 秒刷新。通过 Atrium 托盘图标进入设置中心，可调整任务栏外观、组件材质和显示器。
+- **任务栏**：在外观设置的「系统」页开启「隐藏系统任务栏」并保存，桌屿运行时只显示 Atrium Dock。退出桌屿会恢复系统任务栏。
 
-## 功能
+## Codex 额度组件
 
-### 液态与磨砂
+首次升级时，桌屿会在空闲网格中加入「Codex 额度」。拖动组件可调整位置，底角可在小号和中号之间缩放。点击组件或在右键菜单选择「刷新 Codex 额度」可立即查询。移除后可在其他桌面组件的右键菜单中选择「添加 Codex 额度」恢复。
 
-<p align="center">
-  <img src="docs/images/readme/material.jpg" alt="左边液态，右边磨砂" width="100%">
-</p>
+组件启用期间约每 5 分钟通过本机 Codex 的 app-server 查询当前登录账号。每个返回的订阅窗口分别显示剩余百分比和本地时区的重置时间。未登录、API Key 登录和未提供重置时间都会单独提示。同一账号查询失败时标记上次成功记录的时间。额度快照位于 %LOCALAPPDATA%\Deskfold\codex-quota.json，其中只包含显示数据和用于区分历史记录的账号摘要。
 
-玻璃会折射背后的画面，边缘带一点高光和色散。喜欢通透，用液态（左）；喜欢安静，用磨砂（右）。透明度、模糊和折射强度也可以在设置中心里自己调。玻璃上的文字会跟着背后的明暗自动换成深色或浅色。
+## Dock 录屏
 
-### 任务栏
+点 Dock 托盘箭头左边的红点，选择屏幕或单个窗口。系统声音和麦克风可分别开启，鼠标点击高亮默认开启。点「开始录制」，再点 Dock 的停止按钮即可将 MP4 保存到当前用户的「视频/桌屿录屏」。录制面板也可以停止录制和打开保存目录。
 
-<p align="center">
-  <img src="docs/images/readme/bar.jpg" alt="指针下的图标放大，并显示应用名称" width="100%">
-</p>
+## 数据与兼容
 
-- 悬浮在屏幕底部的胶囊形玻璃栏。指针划过时，图标像波浪一样放大，停一下会浮出应用名称。
-- 指针停在打开的应用上，会显示它每个窗口的实时预览，可以直接切换或关闭。
-- 右键图标和 Windows 任务栏一样，列出程序自己的跳转列表：已固定和最近的文件、文件夹、工作区，以及程序提供的任务（如浏览器的新窗口、无痕窗口）；还可以以管理员身份运行、查看属性。设置中心里可以关掉，恢复简单的菜单。
-- 固定的应用可以拖动排序；前台应用全屏或最大化时，栏会让开（也可以设成常驻或一直隐藏）。游戏、视频等铺满整个屏幕的应用在前台时，指针碰到底边也不会唤出任务栏，和 Windows 任务栏一样，不会把全屏游戏挤回桌面。打开后，Win + 1…9 可以直接打开栏上的应用。
-- 多显示器：在另一块屏幕底边停留即可唤出 Dock；也可固定到主屏、指定屏幕，或在所有屏幕显示任务栏。在设置中心的“显示器”页可选择任务栏应用显示在所有屏幕、主屏和窗口所在屏、或仅窗口所在屏，并调整跨屏停留时间。
-- 小组件与台前调度可单独选择桌面显示器。目标屏幕断开时临时回到主屏，重新连接后自动恢复。
+扫描个人桌面（含重定向目录）、公共桌面以及已接管的 DeskBox 收纳目录的顶层。扫描会自动分类。拖入分区和一键整理会将桌面上的原项目移动到 %LOCALAPPDATA%\Deskfold\收纳文件，区分个人与公共桌面。桌面重定向到其他盘时使用该桌面中的隐藏收纳目录，保持同卷移动。原 DeskBox 目录里的文件继续按原路径使用。隐藏、系统及常见下载临时文件会略过。卸载保留收纳文件与个人数据。
 
-### 开始菜单
+分类依次采用手动归属、名称规则、收纳目录对应的分区和内置类型。多条名称规则指向不同分区时进入「待整理」。原版的分类规则和手动归属自动沿用。
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/images/readme/start-pins.jpg" alt="开始菜单里的固定应用"></td>
-    <td width="50%"><img src="docs/images/readme/start-search.jpg" alt="在开始菜单里直接打字搜索"></td>
-  </tr>
-</table>
+右键天气组件，或点分区管理的「···」，选择「天气城市…」。输入城市或拼音，核对省份和国家，点击「使用此城市」。也可以点「恢复自动定位」。组件使用 Open-Meteo 预报，选址保存在当前桌屿配置中，重启后继续生效。
 
-点栏左侧的 Windows 徽标打开，也可以设成按 Win 键打开。Windows 开始菜单里固定的应用照常在这里；搜索框旁的同步按钮可以随时把 Windows 开始菜单的固定应用、以及“所有应用”里的文件夹连同其中的应用一起同步过来；图标可以拖动换位置，拖到另一个图标上就建成文件夹，可以命名。菜单有小、中、大三档。打开后不用点搜索框，直接打字就能搜索应用和文件夹，也能按拼音首字母搜（wx 找到微信）；“全部应用”按 A–Z 排列，左侧字母条可以快速跳转。右键应用可以以管理员身份运行、打开文件所在的位置，不想看到的应用也可以右键隐藏。下面一条是账户、网络、音量、电量和电源；设置中心里可以选菜单大小，也可以去掉其中的托盘或状态按钮。
+个人数据位于 %LOCALAPPDATA%\Deskfold。layout.json 保存分类与规则，widgets.json 保存原生组件布局，view.json 是供 Atrium 渲染的本地文件列表。Atrium 的外观设置由原版设置中心管理。屏幕空间不足时可从分区管理访问文件，缩小现有组件再刷新。
 
-### 状态圆环与控制中心
+## 开发
 
-<p align="center">
-  <img src="docs/images/readme/ring.jpg" alt="状态圆环：充电中、调节音量、调节亮度" width="100%">
-</p>
+仓库保留 Atrium 至 v2.7.0（`63ea4ed`）的提交历史。Dock 和小组件在 `native/core/`，桌屿的 Windows 主程序、文件整理、录屏、测试和安装脚本在 `deskislet/`。上游许可见 [LICENSE](LICENSE)。录屏使用 ScreenRecorderLib 7.0.1 的 x64 发行文件，附带其 [MIT 许可](deskislet/vendor/recorder-x64/ScreenRecorderLib.LICENSE.txt)。
 
-栏的右侧只有一个圆环，代替一排电池、网络和音量图标。外圈是电量，充电时开口处有一道闪电；中间是 Wi‑Fi。调音量或亮度时，圆环变成对应的刻度，1.5 秒后自己回到电量和 Wi‑Fi。在圆环上滚动滚轮可以直接调音量。习惯 Windows 的样子，也可以换成并排的网络、音量、电池三个图标。
+使用带 Windows SDK 的 x64 MSVC 开发环境、CMake 3.25+、PowerShell 7 和 NSIS 3。从仓库根目录运行以下命令。两个测试脚本使用 64 位 Windows PowerShell 5.1。
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/images/readme/control-center.jpg" alt="控制中心"></td>
-    <td width="50%"><img src="docs/images/readme/notifications.jpg" alt="通知列表"></td>
-  </tr>
-</table>
+    .\deskislet\build.ps1
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deskislet\tests\Catalog.Tests.ps1
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deskislet\tests\CodexQuota.Tests.ps1
+    .\deskislet\installer\pack.ps1 -MakeNsis 'makensis.exe'
 
-点圆环打开控制中心：Wi‑Fi、蓝牙、电池、投屏、台前调度、显示器亮度、声音和输出设备，还能分别调各个应用的音量。点铃铛打开通知：新消息叠成一摞，点一下展开成列表。点时钟打开带农历和节日的日历。
+构建脚本校验 Atrium v2.7.0 官方发布包的 SHA-256，复用其中的设置中心和资源。录屏依赖的 VC++ 运行库从 Visual Studio 的 x64 可再发行目录复制；自定义工具链可用 `-VCRedistDirectory` 指向 `Microsoft.VC*.CRT` 目录。安装包生成在 `deskislet/dist/DeskIslet-Setup-x64.exe`。内部数据目录继续使用 `Deskfold`，方便已有安装升级。
 
-设置中心的“通知 → 通知位置”可选择“跟随任务栏”（默认）或“主屏右上角”。右上角模式下，新通知从右侧淡入，已有通知平滑向下让位；通知较多时可滚动查看，点击铃铛打开的通知中心也在主屏右上角展开。
-
-### 桌面小组件
-
-<p align="center">
-  <img src="docs/images/readme/widgets.jpg" alt="桌面上的小组件" width="100%">
-</p>
-
-时钟、数字时钟、日历（带农历）、天气、电池、蓝牙设备、网络、系统监视、备忘录、提醒事项和照片，十一类小组件，三种尺寸。中号的时钟和数字时钟会显示几座城市的时间，右键“更改城市…”可以逐个换成其他城市。拖到哪里都会吸附到网格上；指针移上去，下角会出现一段弧形握把，拖动它就能改变大小。小组件平时在所有窗口下面，按 Win + D 显示桌面时浮到最上。
-
-<p align="center">
-  <img src="docs/images/readme/widget-materials.jpg" alt="小组件的三种材质：跟随任务栏、暮色、原色" width="100%">
-</p>
-
-三种材质可选：**跟随任务栏**的透明玻璃；把玻璃调暗、文字全白的**暮色**；不透明、带原本颜色的**原色**。
-
-### 台前调度
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/images/readme/stage.jpg" alt="台前调度：当前应用在中间，其余应用在左侧"></td>
-    <td width="50%"><img src="docs/images/readme/stage-hover.jpg" alt="指针移到侧边的窗口上时，窗口转正并放大"></td>
-  </tr>
-</table>
-
-正在用的应用留在屏幕中间，其余应用收到一侧，窗口画面斜立成一列，每个窗口一张卡片，同一个应用的几个窗口也分开放。指针移上去，窗口转正并稍稍放大；点一下就换到前面，按住 Shift 点按可以把几个应用组成一组。侧边可以一直显示（压在侧边上的窗口来到前台时会自动挪到旁边；窗口最大化时侧边让开，指针碰到屏幕边缘再滑出），也可以只在指针碰到屏幕边缘时滑出。打开“窗口最小化到台前调度”后，最小化前面的应用，它的窗口画面会直接飞进侧边，不再缩到任务栏。设置中心里可以列出不参与台前调度的应用（默认只包含 Windows 系统截图工具），它们的窗口不会被收起，录屏时暂停、停止控件留在屏幕上。关闭台前调度或退出 Atrium 时，所有窗口都会恢复原样。
-
-侧栏的扩展操作：
-
-| 输入 | 行为 |
-| --- | --- |
-| 滚轮／触控板纵向或横向滚动 | 循环浏览完整侧栏列表，首尾相接；精细滚动累计后换位，不切换前台窗口 |
-| 任务栏应用右键 → 打开/添加到当前这一组 | 未被排除的应用始终出现这一行；台前调度开启时已有窗口加入当前组、未启动的应用打开后加入，关闭时只打开应用 |
-
-## 开始使用
-
-1. 从 [Releases](https://github.com/wynter-yaxley/atrium-desktop/releases/latest) 下载 `Atrium-<版本>-win-x64.zip`，解压到任意文件夹。
-2. 运行 `Atrium.exe`。屏幕底部会出现玻璃任务栏，第一次运行时会导入 Windows 任务栏里固定的应用。
-3. 双击托盘里的 Atrium 图标，或右键选择“外观设置…”，打开设置中心。材质、尺寸、固定的应用、通知、小组件和三个模块的开关都在这里，“关于”页里可以检查更新。
-4. 在托盘图标上右键，选择“退出 Atrium”即可完全退出。设置保存在 `%LOCALAPPDATA%\Atrium`。
-
-系统要求：Windows 10 19041 及以上，推荐 Windows 11。
-
-### 被 Windows 拦截时
-
-Atrium 的发布包没有代码签名，每个新版本的文件在 Windows 那里都还没有信誉。
-
-- **SmartScreen 提示“Windows 已保护你的电脑”**：点“更多信息” › “仍要运行”。
-- **提示“应用程序控制策略已阻止此文件”**（运行时出现，或更新时显示“更新未安装”）：是智能应用控制或单位的应用控制策略拦下了新文件。更新会自动恢复旧版本，不会丢设置。在 PowerShell 里运行 `(Get-MpComputerStatus).SmartAppControlState`：
-  - 结果是 `On`：可以在 Windows 安全中心 › 应用和浏览器控制 › 智能应用控制里把它关闭。注意，在部分 Windows 版本上，关闭后不重装系统就无法再打开。
-  - 结果是 `Off` 但仍被拦截：多半是单位的策略，请联系管理员放行 Atrium 所在的目录。
-
-## 当前状态
-
-| | |
-| :--- | :--- |
-| 可以日常使用 | 任务栏、开始菜单、控制中心、日历、托盘、通知、桌面小组件、台前调度、设置中心 |
-| 实验功能 | 把 Windows 通知显示为 Atrium 卡片；微信和飞书消息 |
-| 还没有验证 | 多显示器、HDR、高刷新率、睡眠唤醒、稳定版 Windows 11 |
-| 已知限制 | 使用 DXGI 桌面复制的录屏和远程控制软件（UU 远程、ToDesk、向日葵等）默认看不到 Atrium，可在“系统”里打开“远程控制兼容”（玻璃改为映出壁纸）；双显卡笔记本第一次运行后需要重启一次 Atrium |
-
-## 构建
-
-需要 .NET 10 SDK，以及带 C++ 工作负载和 Windows SDK 的 Visual Studio 或 Build Tools（CMake 3.25+）。
-
-```powershell
-./tools/build.ps1          # 输出到 dist/Atrium，加 -Zip 同时打包
-```
-
-核心是 C++20（Win32、Direct3D 11、DirectComposition），设置中心是 WinUI 3。设计规范见 [docs/DESIGN.md](docs/DESIGN.md)。
-
-## 参与贡献
-
-最有价值的是设计上的意见，以及在不同硬件和系统上的使用反馈。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-## 许可证
-
-[MIT](LICENSE)。视觉灵感来自 Apple 的 Liquid Glass；本项目与 Apple、Microsoft 无关。
-
-<sub>本页配图按 Atrium 的真实尺寸和材质参数离线渲染，应用图标为原创的示意图形，通知内容为虚构。</sub>
+可用 --folder 和 --data 指定测试桌面及独立的分类、组件布局目录。测试桌面需预先存在；Atrium 每个 Windows 会话运行一个实例，测试前请退出正在使用的实例。
