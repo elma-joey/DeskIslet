@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text;
 
 namespace Deskfold
 {
@@ -80,18 +82,52 @@ namespace Deskfold
                 reader.BaseStream.Position = 20;
                 flags = reader.ReadUInt32(); // includes RunAsUser and link resolution options
             }
-            dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell", true));
-            dynamic link = null;
+            var link = (IShellLinkW)new ShellLink();
             try {
-                link = shell.CreateShortcut(path);
-                string target = link.TargetPath;
+                ((IPersistFile)link).Load(path, 0);
+                var text = new StringBuilder(32768);
+                link.GetPath(text, text.Capacity, IntPtr.Zero, 0);
+                string target = text.ToString();
                 if (String.IsNullOrEmpty(target) || !Path.IsPathRooted(target) || !target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return null;
-                return new string[] { target.ToUpperInvariant(), link.Arguments, ((string)link.WorkingDirectory).ToUpperInvariant(),
-                    link.IconLocation, link.Hotkey, link.Description, link.WindowStyle.ToString(), flags.ToString() };
+                link.GetArguments(text.Clear(), text.Capacity);
+                string arguments = text.ToString();
+                link.GetWorkingDirectory(text.Clear(), text.Capacity);
+                string workingDirectory = text.ToString();
+                int iconIndex, showCommand;
+                short hotkey;
+                link.GetIconLocation(text.Clear(), text.Capacity, out iconIndex);
+                string icon = text.ToString();
+                link.GetHotkey(out hotkey);
+                link.GetShowCmd(out showCommand);
+                link.GetDescription(text.Clear(), text.Capacity);
+                return new[] { target.ToUpperInvariant(), arguments, workingDirectory.ToUpperInvariant(),
+                    icon, iconIndex.ToString(), hotkey.ToString(), text.ToString(), showCommand.ToString(), flags.ToString() };
             } finally {
-                if (link != null) Marshal.ReleaseComObject((object)link);
-                Marshal.ReleaseComObject((object)shell);
+                Marshal.ReleaseComObject(link);
             }
+        }
+
+        [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+        class ShellLink { }
+
+        // IShellLinkW methods must follow the Windows SDK vtable order, including unused setters.
+        [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IShellLinkW
+        {
+            void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int capacity, IntPtr findData, uint flags);
+            void GetIDList(out IntPtr list);
+            void SetIDList(IntPtr list);
+            void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder text, int capacity);
+            void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string text);
+            void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int capacity);
+            void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string path);
+            void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder text, int capacity);
+            void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string text);
+            void GetHotkey(out short hotkey);
+            void SetHotkey(short hotkey);
+            void GetShowCmd(out int command);
+            void SetShowCmd(int command);
+            void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int capacity, out int index);
         }
     }
 }
