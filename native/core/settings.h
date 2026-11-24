@@ -56,6 +56,7 @@ struct Settings {
     bool showTray = true;
     bool showStatus = true;
     bool showNotifications = true;
+    bool showRecorder = true;
     bool showDesktop = false;        // the Show Desktop slot at the bar's right end
     bool showRunning = true;
     // The interface language of the bar, its popups, the widgets and the settings app.

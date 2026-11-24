@@ -82,7 +82,7 @@ public sealed partial class MainWindow
         Loupe.Background = _loupeBrush;
         _renderWorker = new LatestWorker<RenderJob>(RenderFrame);
         _swatchWorker = new LatestWorker<BarSettings>(job => RenderSwatch(job, SwatchCustom));
-        _previewRunning = new PinVm(this, new PinnedApp("Atrium", Environment.ProcessPath!, "", ""))
+        _previewRunning = new PinVm(this, new PinnedApp("桌屿", Environment.ProcessPath!, "", ""))
         {
             Icon = new BitmapImage(new Uri(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "atrium-256.png"))) { DecodePixelWidth = 96 },
         };

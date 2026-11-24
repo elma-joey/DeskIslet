@@ -4,7 +4,7 @@
 
 namespace atrium {
 
-inline constexpr wchar_t kAppId[] = L"Atrium.Desktop";
+inline constexpr wchar_t kAppId[] = L"DeskIslet.Desktop";
 
 bool IsRegisteredApplication(const std::wstring& directory);
 // Development builds never register, including complete development packages.

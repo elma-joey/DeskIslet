@@ -80,7 +80,7 @@ constexpr UINT kTrayId = 1;
 
 enum Command : UINT {
     kCmdSettings = 100, kCmdToggle, kCmdExit, kCmdNewWindow, kCmdPin, kCmdUnpin, kCmdClose, kCmdOpenLocation, kCmdDesktop, kCmdTaskManager, kCmdTerminate, kCmdTerminateConfirm,
-    kCmdWidgets, kCmdStage, kCmdWidgetsModule, kCmdStageAdd, kCmdRunAs, kCmdProperties, kCmdManageFiles,
+    kCmdWidgets, kCmdStage, kCmdWidgetsModule, kCmdStageAdd, kCmdRunAs, kCmdProperties, kCmdManageFiles, kCmdRecord, kCmdShowRecorder, kCmdSnip, kCmdPinClip, kCmdInbox, kCmdReminders,
     kCmdRecent = 2000 // + index into the recent list (its length is bounded)
 };
 
@@ -177,12 +177,12 @@ bool SameCoreExecutable(HWND window)
 void OpenSettings(const wchar_t* page = nullptr)
 {
     std::wstring dir = ExeDir();
-    std::vector<std::wstring> candidates = {dir + L"\\Settings\\Atrium.Settings.exe", dir + L"\\Atrium.Settings.exe"};
+    std::vector<std::wstring> candidates = {dir + L"\\Settings\\DeskIslet.Settings.exe", dir + L"\\DeskIslet.Settings.exe"};
     // A development build (native\build\win-x64\Release): the packaged settings app of the same repository.
     for (std::wstring up = dir; up.size() > 3;) {
         up = up.substr(0, up.find_last_of(L'\\'));
-        candidates.push_back(up + (IsDevelopmentBuild() ? L"\\dist\\Development\\Atrium\\Settings\\Atrium.Settings.exe"
-                                                       : L"\\dist\\Atrium\\Settings\\Atrium.Settings.exe"));
+        candidates.push_back(up + (IsDevelopmentBuild() ? L"\\dist\\Development\\Atrium\\Settings\\DeskIslet.Settings.exe"
+                                                       : L"\\dist\\Atrium\\Settings\\DeskIslet.Settings.exe"));
     }
     for (const std::wstring& exe : candidates) {
         if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES)
@@ -204,7 +204,7 @@ void AddTrayIcon()
     nid.uCallbackMessage = WM_TRAY;
     nid.hIcon = static_cast<HICON>(LoadImageW(g_app.instance, MAKEINTRESOURCEW(IDI_ATRIUM), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
                                               GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
-    wcscpy_s(nid.szTip, L"Atrium");
+    wcscpy_s(nid.szTip, L"桌屿 · DeskIslet");
     g_app.trayAdded = Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
     DestroyIcon(nid.hIcon);
     if (!g_app.trayAdded) {
@@ -371,6 +371,12 @@ void ShowMenu(POINT pt)
     entries.push_back({});
     entries.push_back({Tr(L"Taskbar"), kCmdToggle, g_app.barOn.value_or(true)});
     entries.push_back({Tr(L"Desktop Widgets"), kCmdWidgetsModule, g_app.widgetsOn});
+    entries.push_back({g_app.recording ? L"停止并保存录屏" : L"屏幕录制…", kCmdRecord});
+    entries.push_back({L"在 Dock 显示录屏按钮", kCmdShowRecorder, g_app.server->Current().showRecorder});
+    entries.push_back({L"区域截图…", kCmdSnip});
+    entries.push_back({L"贴出剪贴板图片", kCmdPinClip});
+    entries.push_back({L"邮箱与新邮件通知…", kCmdInbox});
+    entries.push_back({L"喝水与久坐提醒…", kCmdReminders});
     entries.push_back({L"管理桌面分区…", kCmdManageFiles});
     entries.push_back({Tr(L"Stage Manager"), kCmdStage, g_app.stage->Enabled()});
     entries.push_back({});
@@ -380,6 +386,12 @@ void ShowMenu(POINT pt)
         case kCmdSettings:
             OpenSettings();
             break;
+        case kCmdRecord: g_app.widgets->FileAction(L"record"); break;
+        case kCmdShowRecorder: g_app.server->Modify([](Settings& s) { s.showRecorder = !s.showRecorder; }); break;
+        case kCmdSnip: g_app.widgets->FileAction(L"snip"); break;
+        case kCmdPinClip: g_app.widgets->FileAction(L"pinClip"); break;
+        case kCmdInbox: g_app.widgets->FileAction(L"inbox"); break;
+        case kCmdReminders: g_app.widgets->FileAction(L"reminders"); break;
         case kCmdManageFiles:
             g_app.widgets->ShowFileManager();
             break;
@@ -1539,7 +1551,8 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l)
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
 {
-    SetLanguage(L"auto"); // before any message; the saved choice follows with LoadSettings
+    winrt::init_apartment(winrt::apartment_type::single_threaded);
+    SetLanguage(L"auto"); // Locale JSON uses WinRT, including on the first menu shown.
     // Never in the install folder (started from it in Explorer, or by the updater): the apps started
     // from the bar would inherit it, and a folder some process is in cannot be replaced by an update.
     if (PWSTR profile = nullptr; SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &profile))) {
@@ -1628,7 +1641,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
             return 0;
         Log(L"core: took over from the copy at another location");
     }
-    winrt::init_apartment(winrt::apartment_type::single_threaded);
     SetCurrentProcessExplicitAppUserModelID(kAppId);
     g_app.instance = instance;
     Log(L"core: starting");
@@ -1656,6 +1668,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
 
     Settings settings = LoadSettings();
     SetLanguage(settings.language);
+    Log(L"core: interface language %s (requested %s)", LanguageTag().c_str(), settings.language.c_str());
     // Also on every start while it is on: an update from a version that started from the
     // Run key moves to the logon task, unless that entry was turned off in Task Manager.
     // Off this thread: Task Scheduler is slow while the session is starting.
@@ -1790,7 +1803,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
         Log(L"usb: could not register for volume notifications (%lu)", GetLastError());
     SetTimer(g_app.host, kStatusTimer, kStatusMs, nullptr);
     g_app.tray->Refresh(); // the panel opens with the icons already read
-    g_app.updates = std::make_unique<UpdateChecker>(g_app.host);
+    // DeskIslet publishes its own installers; settings opens the project release page.
     if (!g_readyEvent.empty()) SetTimer(g_app.host, kReadyTimer, 50, nullptr);
 
     MSG msg;

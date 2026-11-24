@@ -71,6 +71,7 @@ namespace Deskfold
             };
             var owner = new WindowInteropHelper(win).Handle;
             HwndSource.FromHwnd(owner).AddHook(ReceiveAction);
+            StartTools(owner);
             Environment.SetEnvironmentVariable("DESKFOLD_OWNER", owner.ToInt64().ToString());
             Environment.SetEnvironmentVariable("DESKFOLD_DATA", dataDirectory);
             PublishView();
@@ -90,6 +91,7 @@ namespace Deskfold
 
         void StopAtrium()
         {
+            StopTools();
             if (codexQuota != null) codexQuota.Stop();
             if (coreThread == null || !coreThread.IsAlive) return;
             // The window can close before the native UI thread has created its host.
@@ -124,6 +126,9 @@ namespace Deskfold
 
         IntPtr ReceiveAction(IntPtr h, int m, IntPtr sender, IntPtr l, ref bool handled)
         {
+            if (m == 0x312 && !closed && (sender.ToInt32() == SnipKey || sender.ToInt32() == PinKey)) {
+                handled = true; BeginCapture(sender.ToInt32() == PinKey); return IntPtr.Zero;
+            }
             if (m != 0x4A || l == IntPtr.Zero || closed) return IntPtr.Zero;
             uint pid; GetWindowThreadProcessId(sender, out pid);
             if (pid != processId) return IntPtr.Zero;
@@ -149,6 +154,9 @@ namespace Deskfold
                         if (action == "overflow") Message("网格空间不足。可缩小现有组件，再点刷新分区。");
                     } else if (action == "quotaRefresh") codexQuota.Refresh();
                     else if (action == "weatherCity") ChooseWeatherCity();
+                    else if (action == "snip" || action == "pinClip") BeginCapture(action == "pinClip");
+                    else if (action == "inbox") ShowInbox();
+                    else if (action == "reminders") ShowReminders();
                     else if (action == "record") ShowRecorder(zone);
                     else if (action == "manage") ManageRules();
                     else if (action == "advanced") Reveal();

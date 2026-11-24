@@ -5,7 +5,7 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <RootNamespace>Atrium.Settings</RootNamespace>
-    <AssemblyName>Atrium.Settings</AssemblyName>
+    <AssemblyName>DeskIslet.Settings</AssemblyName>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
@@ -20,9 +20,10 @@
     <AtriumDevelopment Condition="'$(AtriumDevelopment)' == ''">true</AtriumDevelopment>
     <DefineConstants Condition="'$(AtriumDevelopment)' == 'true'">$(DefineConstants);ATRIUM_DEVELOPMENT</DefineConstants>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>..\..\assets\atrium.ico</ApplicationIcon>
-    <Version>2.7.0</Version>
-    <Product>Atrium Desktop</Product>
+    <ApplicationIcon>..\..\deskislet\src\DeskIslet.ico</ApplicationIcon>
+    <Version>1.2.0</Version>
+    <Product>DeskIslet</Product>
+    <AssemblyTitle>桌屿 · DeskIslet 设置</AssemblyTitle>
     <Copyright>MIT License</Copyright>
     <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
   </PropertyGroup>
@@ -37,8 +38,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\assets\atrium.ico" Link="Assets\atrium.ico" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\..\assets\atrium-256.png" Link="Assets\atrium-256.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\deskislet\src\DeskIslet.ico" Link="Assets\atrium.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\deskislet\src\DeskIslet.png" Link="Assets\atrium-256.png" CopyToOutputDirectory="PreserveNewest" />
     <!-- The Stage Manager page's windows and icons (drawn by the export-stage-art option of a development build). -->
     <Content Include="..\..\assets\stage\*.png" Link="Assets\Stage\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\assets\backgrounds\*.jpg;..\..\assets\backgrounds\README.md" Link="Assets\Backgrounds\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

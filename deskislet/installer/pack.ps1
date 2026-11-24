@@ -1,8 +1,9 @@
-param([string]$MakeNsis = 'makensis.exe')
+param([string]$MakeNsis = 'makensis.exe', [string]$AppDirectory)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
-$app = (Resolve-Path (Join-Path $root 'dist/Atrium')).Path
-foreach ($required in 'Atrium.exe','Deskfold.Core.dll','Settings/Atrium.Settings.exe','ScreenRecorderLib.dll','ScreenRecorderLib.LICENSE.txt','msvcp140.dll','concrt140.dll','vcruntime140.dll','vcruntime140_1.dll') {
+if (!$AppDirectory) { $AppDirectory = Join-Path $root 'dist/Atrium' }
+$app = (Resolve-Path -LiteralPath $AppDirectory).Path
+foreach ($required in 'DeskIslet.exe','Deskfold.Core.dll','Settings/DeskIslet.Settings.exe','ScreenRecorderLib.dll','ScreenRecorderLib.LICENSE.txt','msvcp140.dll','concrt140.dll','vcruntime140.dll','vcruntime140_1.dll') {
     if (!(Test-Path -LiteralPath (Join-Path $app $required))) { throw "Missing $required. Run build.ps1 first." }
 }
 $output = Join-Path $root 'dist/DeskIslet-Setup-x64.exe'

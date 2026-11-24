@@ -57,6 +57,7 @@ internal sealed class BarSettings
     public string StartIcon { get; set; } = "";
     public bool ShowStatus { get; set; } = true;
     public bool ShowNotifications { get; set; } = true;
+    public bool ShowRecorder { get; set; } = true;
     public bool ShowDesktop { get; set; } = false;     // the Show Desktop slot at the bar's right end
     public bool ShowRunning { get; set; } = true;
     public string TextColor { get; set; } = "auto"; // auto | light | dark
@@ -174,6 +175,7 @@ internal sealed class BarSettings
             ["startWithBar"] = StartWithBar,
             ["showStatus"] = ShowStatus,
             ["showNotifications"] = ShowNotifications,
+            ["showRecorder"] = ShowRecorder,
             ["showDesktop"] = ShowDesktop,
             ["autoWidth"] = AutoWidth,
             ["showRunning"] = ShowRunning,
@@ -279,6 +281,7 @@ internal sealed class BarSettings
         s.StartIcon = o?["startIcon"] is JsonValue si0 && si0.TryGetValue(out string? iconSize) && iconSize is "small" or "medium" or "large" or "xlarge" ? iconSize! : f.StartIcon;
         s.ShowStatus = Flag("showStatus", f.ShowStatus);
         s.ShowNotifications = Flag("showNotifications", f.ShowNotifications);
+        s.ShowRecorder = Flag("showRecorder", f.ShowRecorder);
         s.ShowDesktop = Flag("showDesktop", f.ShowDesktop);
         s.AutoWidth = Flag("autoWidth", f.AutoWidth);
         s.ShowRunning = Flag("showRunning", f.ShowRunning);
@@ -368,7 +371,7 @@ internal sealed class BarSettings
         MagnifyNear == o.MagnifyNear && NearEnter == o.NearEnter && NearLeave == o.NearLeave && AutoWidth == o.AutoWidth && ShowClock == o.ShowClock &&
         ShowClockSeconds == o.ShowClockSeconds &&
         ShowTray == o.ShowTray && TrayHost == o.TrayHost && StartTray == o.StartTray && StartStatus == o.StartStatus && StartCentered == o.StartCentered && StartWithBar == o.StartWithBar && StartSize == o.StartSize && StartIcon == o.StartIcon &&
-        ShowStatus == o.ShowStatus && ShowNotifications == o.ShowNotifications && ShowDesktop == o.ShowDesktop &&
+        ShowStatus == o.ShowStatus && ShowNotifications == o.ShowNotifications && ShowDesktop == o.ShowDesktop && ShowRecorder == o.ShowRecorder &&
         ShowRunning == o.ShowRunning && TextColor == o.TextColor && Language == o.Language && AutoHide == o.AutoHide && StatusStyle == o.StatusStyle && NotifyTimeout == o.NotifyTimeout && NotifyHideBody == o.NotifyHideBody &&
         NotifyListener == o.NotifyListener && NotifyWeChat == o.NotifyWeChat && NotifyFeishu == o.NotifyFeishu &&
         NotifyQQ == o.NotifyQQ && NotifyWeCom == o.NotifyWeCom && NotifyDingTalk == o.NotifyDingTalk && AttentionLight == o.AttentionLight && AttentionBounce == o.AttentionBounce && Bar == o.Bar && Widgets == o.Widgets &&

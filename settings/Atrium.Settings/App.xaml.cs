@@ -13,7 +13,7 @@ public partial class App : Application
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int MessageBox(IntPtr hwnd, string text, string title, uint type);
     internal const uint OpenAboutMessage = 0x8000 + 31;
 
-    public static string WindowTitle => Loc.T("Atrium Settings");
+    public static string WindowTitle => "桌屿 · DeskIslet 设置";
     internal static MainWindow? CurrentWindow { get; private set; }
     private static BarSettings? s_pendingCurrent, s_pendingSaved;
     private static Mutex? s_instance;

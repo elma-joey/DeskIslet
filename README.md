@@ -24,6 +24,14 @@ DeskIslet 是基于 [Atrium Desktop v2.7.0](https://github.com/wynter-yaxley/atr
 - **Dock 与材质**：底部 Dock 的时钟旁显示整台电脑的 CPU 和物理内存占用百分比，约每 3 秒刷新。通过 Atrium 托盘图标进入设置中心，可调整任务栏外观、组件材质和显示器。
 - **任务栏**：在外观设置的「系统」页开启「隐藏系统任务栏」并保存，桌屿运行时只显示 Atrium Dock。退出桌屿会恢复系统任务栏。
 
+## 截图、邮箱和健康提醒
+
+右键 Dock 空白处或系统托盘里的桌屿图标可打开工具菜单。「在 Dock 显示录屏按钮」可随时切换，菜单里的「屏幕录制」也可以开始或停止录制。
+
+- **截图和贴图**。从菜单选择「区域截图」，或按 Ctrl + Alt + F1，拖动框选屏幕内容。选区可以复制、存为 PNG 或贴在其他窗口上方。拖动贴图可移动它，Esc 关闭。Ctrl + Alt + F3 将剪贴板中的图片贴到屏幕。快捷键被其他程序占用时可走菜单。
+- **邮箱**。在「邮箱与新邮件通知」里连接 QQ 或 163 邮箱，可添加多个账号。先在邮箱网页开启 IMAP，使用邮箱地址和授权码验证。授权码用 Windows DPAPI 绑定当前用户加密保存。桌屿每两分钟检查收件箱，列出最近 20 封；首次同步建立基线，以后对新到的未读邮件发出提醒。在列表里双击邮件可查看纯文本预览，识别到验证码可单击复制。正文按需读取，邮箱以只读方式打开。
+- **喝水与久坐提醒**。两种提醒分别开启并设置间隔。提醒可确认或延后五分钟。离开电脑五分钟会重新开始久坐计时；从睡眠恢复后重新计时。
+
 ## Codex 额度组件
 
 首次升级时，桌屿会在空闲网格中加入「Codex 额度」。拖动组件可调整位置，底角可在小号和中号之间缩放。点击组件或在右键菜单选择「刷新 Codex 额度」可立即查询。移除后可在其他桌面组件的右键菜单中选择「添加 Codex 额度」恢复。
@@ -48,13 +56,14 @@ DeskIslet 是基于 [Atrium Desktop v2.7.0](https://github.com/wynter-yaxley/atr
 
 仓库保留 Atrium 至 v2.7.0（`63ea4ed`）的提交历史。Dock 和小组件在 `native/core/`，桌屿的 Windows 主程序、文件整理、录屏、测试和安装脚本在 `deskislet/`。上游许可见 [LICENSE](LICENSE)。录屏使用 ScreenRecorderLib 7.0.1 的 x64 发行文件，附带其 [MIT 许可](deskislet/vendor/recorder-x64/ScreenRecorderLib.LICENSE.txt)。
 
-使用带 Windows SDK 的 x64 MSVC 开发环境、CMake 3.25+、PowerShell 7 和 NSIS 3。从仓库根目录运行以下命令。两个测试脚本使用 64 位 Windows PowerShell 5.1。
+使用带 Windows SDK 的 x64 MSVC 开发环境、CMake 3.25+、PowerShell 7、.NET 10 SDK 和 NSIS 3。从仓库根目录运行以下命令。测试脚本使用 64 位 Windows PowerShell 5.1。
 
     .\deskislet\build.ps1
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deskislet\tests\Catalog.Tests.ps1
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deskislet\tests\CodexQuota.Tests.ps1
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deskislet\tests\DesktopTools.Tests.ps1
     .\deskislet\installer\pack.ps1 -MakeNsis 'makensis.exe'
 
-构建脚本校验 Atrium v2.7.0 官方发布包的 SHA-256，复用其中的设置中心和资源。录屏依赖的 VC++ 运行库从 Visual Studio 的 x64 可再发行目录复制；自定义工具链可用 `-VCRedistDirectory` 指向 `Microsoft.VC*.CRT` 目录。安装包生成在 `deskislet/dist/DeskIslet-Setup-x64.exe`。内部数据目录继续使用 `Deskfold`，方便已有安装升级。
+构建脚本从仓库源码编译 DeskIslet 主程序、原生桌面核心及 WinUI 外观设置。录屏依赖的 VC++ 运行库从 Visual Studio 的 x64 可再发行目录复制；自定义工具链可用 `-VCRedistDirectory` 指向 `Microsoft.VC*.CRT` 目录。安装包生成在 `deskislet/dist/DeskIslet-Setup-x64.exe`。内部数据目录继续使用 `Deskfold`，方便已有安装升级。
 
 可用 --folder 和 --data 指定测试桌面及独立的分类、组件布局目录。测试桌面需预先存在；Atrium 每个 Windows 会话运行一个实例，测试前请退出正在使用的实例。

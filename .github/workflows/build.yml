@@ -44,6 +44,7 @@ jobs:
         run: |
           ./deskislet/tests/Catalog.Tests.ps1
           ./deskislet/tests/CodexQuota.Tests.ps1
+          ./deskislet/tests/DesktopTools.Tests.ps1
       - name: Build installer
         shell: pwsh
         run: |

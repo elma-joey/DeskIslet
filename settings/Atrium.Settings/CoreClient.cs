@@ -47,7 +47,7 @@ internal sealed class CoreClient : IDisposable
 
     public static string? CoreExe()
     {
-        foreach (var p in new[] { Path.Combine(AppContext.BaseDirectory, "..", "Atrium.exe"), Path.Combine(AppContext.BaseDirectory, "Atrium.exe") })
+        foreach (var p in new[] { Path.Combine(AppContext.BaseDirectory, "..", "DeskIslet.exe"), Path.Combine(AppContext.BaseDirectory, "DeskIslet.exe") })
             if (File.Exists(p)) return Path.GetFullPath(p);
         return null;
     }

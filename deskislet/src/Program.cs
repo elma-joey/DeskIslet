@@ -8,10 +8,10 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 
-[assembly: AssemblyTitle("桌屿")]
+[assembly: AssemblyTitle("桌屿 · DeskIslet")]
 [assembly: AssemblyProduct("桌屿 · DeskIslet")]
-[assembly: AssemblyDescription("桌面分区与 Dock")]
-[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyDescription("桌屿 · DeskIslet")]
+[assembly: AssemblyVersion("1.2.0.0")]
 
 namespace Deskfold
 {
@@ -24,7 +24,7 @@ namespace Deskfold
             {
                 // Keep the previous workspace shortcut working. Installed copies start the host directly.
                 var appDir = AppDomain.CurrentDomain.BaseDirectory;
-                var host = Path.Combine(appDir, "Atrium", "Atrium.exe");
+                var host = Path.Combine(appDir, "Atrium", "DeskIslet.exe");
                 if (!File.Exists(Path.Combine(appDir, "Deskfold.Core.dll")) && File.Exists(host)) {
                     string line = Environment.CommandLine.TrimStart();
                     int end = line[0] == '"' ? line.IndexOf('"', 1) + 1 : line.IndexOf(' ');

@@ -115,6 +115,7 @@ std::wstring Settings::ToJson() const
     o.SetNamedValue(L"showTray", json::JsonValue::CreateBooleanValue(showTray));
     o.SetNamedValue(L"showStatus", json::JsonValue::CreateBooleanValue(showStatus));
     o.SetNamedValue(L"showNotifications", json::JsonValue::CreateBooleanValue(showNotifications));
+    o.SetNamedValue(L"showRecorder", json::JsonValue::CreateBooleanValue(showRecorder));
     o.SetNamedValue(L"showDesktop", json::JsonValue::CreateBooleanValue(showDesktop));
     o.SetNamedValue(L"autoWidth", json::JsonValue::CreateBooleanValue(autoWidth));
     o.SetNamedValue(L"showRunning", json::JsonValue::CreateBooleanValue(showRunning));
@@ -231,6 +232,7 @@ bool Settings::FromJson(const std::wstring& text, const Settings& base, Settings
     flag(L"showTray", s.showTray);
     flag(L"showStatus", s.showStatus);
     flag(L"showNotifications", s.showNotifications);
+    flag(L"showRecorder", s.showRecorder);
     flag(L"showDesktop", s.showDesktop);
     flag(L"autoWidth", s.autoWidth);
     flag(L"showRunning", s.showRunning);

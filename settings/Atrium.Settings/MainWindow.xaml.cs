@@ -189,7 +189,7 @@ public sealed partial class MainWindow : Window
                                  "start" => 10, "tray" => 11, "status" => 12, "clock" => 13, _ => 0 } : 0;
         SelectPage(page);
         _ = ConnectAndLoadAsync();
-        _ = CheckForUpdatesAsync(); // once per settings window; no resident polling
+        // DeskIslet updates are distributed from its own repository.
     }
 
     // A language switch builds the new settings window while this one is
@@ -523,7 +523,7 @@ public sealed partial class MainWindow : Window
 
     private void OnOpenUpdate(object sender, RoutedEventArgs e) => SelectPage(9);
 
-    private async void OnCheckForUpdates(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync();
+    private void OnCheckForUpdates(object sender, RoutedEventArgs e) => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://github.com/elma-joey/DeskIslet/releases") { UseShellExecute = true });
 
     private async Task CheckForUpdatesAsync()
     {
@@ -819,6 +819,7 @@ public sealed partial class MainWindow : Window
         (_current.StartIcon switch { "small" => StartIconSmall, "large" => StartIconLarge, "xlarge" => StartIconXLarge, _ => StartIconMedium }).IsChecked = true;
         StatusSwitch.IsOn = _current.ShowStatus;
         NotificationsSwitch.IsOn = _current.ShowNotifications;
+        RecorderSwitch.IsOn = _current.ShowRecorder;
         DesktopSwitch.IsOn = _current.ShowDesktop;
         AttentionLightSwitch.IsOn = _current.AttentionLight;
         AttentionBounceSwitch.IsOn = _current.AttentionBounce;
@@ -944,6 +945,7 @@ public sealed partial class MainWindow : Window
         _current.StartStatus = StartStatusSwitch.IsOn;
         _current.ShowStatus = StatusSwitch.IsOn;
         _current.ShowNotifications = NotificationsSwitch.IsOn;
+        _current.ShowRecorder = RecorderSwitch.IsOn;
         _current.ShowDesktop = DesktopSwitch.IsOn;
         _current.StartCentered = StartCenteredSwitch.IsOn;
         _current.StartWithBar = StartWithBarSwitch.IsOn;

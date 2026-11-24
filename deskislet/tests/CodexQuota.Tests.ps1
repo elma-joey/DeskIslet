@@ -1,6 +1,6 @@
 ﻿$ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
-[void][Reflection.Assembly]::LoadFrom((Join-Path $root 'dist/Deskfold.exe'))
+[void][Reflection.Assembly]::LoadFrom((Join-Path $root 'dist/Atrium/DeskIslet.exe'))
 $fixture = [IO.Directory]::CreateDirectory((Join-Path ([IO.Path]::GetTempPath()) ('deskfold-quota-' + [guid]::NewGuid().ToString('N')))).FullName
 # A stdio peer exercises the same process, handshake, parser and cache as the real client.
 $source = @"

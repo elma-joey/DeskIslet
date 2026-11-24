@@ -978,6 +978,7 @@ void Bar::Relayout()
     const bool showTray = showRight && st.showTray;
     const bool showStatus = showRight && st.showStatus;
     const bool showNotifications = showRight && st.showNotifications;
+    const bool showRecord = showRight && st.showRecorder;
     const bool showDesktop = showRight && st.showDesktop;
 
     // Metrics (px). Every icon sits centred on a square plate (press and drag
@@ -1011,7 +1012,7 @@ void Bar::Relayout()
     // Show Desktop: a narrow slot at the bar's right end, a thin line in it, as the system taskbar's.
     const int deskW = showDesktop ? std::max(Px(10, s), int(std::lround(icon * 0.45))) : 0;
     const int usageW = showRight ? Px(63, s) : 0;
-    const int rightCount = int(showTray) + int(showStatus) + int(showNotifications) + int(clockW != 0) + int(showDesktop) + 2 * int(showRight);
+    const int rightCount = int(showTray) + int(showStatus) + int(showNotifications) + int(clockW != 0) + int(showDesktop) + int(showRight) + int(showRecord);
     const int groupGap = rightCount ? sepGap : 0;
     const int total = int(items_.size());
     int n = total;
@@ -1022,7 +1023,7 @@ void Bar::Relayout()
         int w = 2 * padFor(p) + p + 2 * g;               // logo and the air after it
         w += slots ? slots * p + (slots - 1) * g : 0;    // apps
         if (rightCount)
-            w += 2 * sepGap + p * (int(showRight) + int(showTray) + int(showStatus) + int(showNotifications)) + (showStatus ? statusExtra : 0) + clockW +
+            w += 2 * sepGap + p * (int(showRecord) + int(showTray) + int(showStatus) + int(showNotifications)) + (showStatus ? statusExtra : 0) + clockW +
                  usageW + deskW + (rightCount - 1) * g;
         return std::max(w, barH * 2);
     };
@@ -1165,7 +1166,7 @@ void Bar::Relayout()
     const int usageLeft = rightSlot(usageW, showRight);
     const int statusLeft = rightSlot(statusW, showStatus), statusRight = statusLeft + statusW;
     const int trayLeft = rightSlot(plate, showTray);
-    const int recordLeft = rightSlot(plate, showRight);
+    const int recordLeft = rightSlot(plate, showRecord);
     const int rightLeft = rightCount ? cursor + gap : insetX + barW - pad;
     const int appsMin = startLeft + plate + 2 * gap;
     const int slots = n + (more ? 1 : 0);
@@ -1226,12 +1227,14 @@ void Bar::Relayout()
     gap_ = gap;
     shown_ = n;
     scene.separatorX = rightCount ? float(rightLeft - sepGap) : -1;
-    if (showRight) {
-        auto usage = entry(L"#usage", usageLeft, L"");
+    if (showRecord) {
         auto record = entry(kRecordKey, recordLeft, L"");
         record.active = recording_;
         scene.extras.push_back(std::move(record));
         hits_.push_back({kRecordKey, RECT{recordLeft - gap / 2, hitTop, recordLeft + plate + gap / 2, hitBottom}});
+    }
+    if (showRight) {
+        auto usage = entry(L"#usage", usageLeft, L"");
         usage.plate.right = usage.plate.left + float(usageW);
         usage.icon = usage.plate;
         scene.extras.push_back(std::move(usage));

@@ -1,5 +1,5 @@
 ﻿$ErrorActionPreference = 'Stop'
-$binary = Join-Path (Split-Path $PSScriptRoot) 'dist\Deskfold.exe'
+$binary = Join-Path (Split-Path $PSScriptRoot) 'dist\Atrium\DeskIslet.exe'
 [void][Reflection.Assembly]::LoadFrom($binary)
 $fixture = Join-Path ([IO.Path]::GetTempPath()) ('deskfold-check-' + [guid]::NewGuid().ToString('N'))
 $desktop = [IO.Directory]::CreateDirectory((Join-Path $fixture 'desktop')).FullName
@@ -120,23 +120,23 @@ function ReconcileLinks {
     }
     $auto.CollectNext($list)
 }
-WriteLink $personalDesk '已有.lnk' ''
+WriteLink $personalDesk 'Existing.lnk' ''
 if (ReconcileLinks) { throw 'Upgrade moved a pre-existing shortcut' }
-WriteLink $publicDesk '测试应用.lnk' ''
+WriteLink $publicDesk 'Sample App.lnk' ''
 if (!(ReconcileLinks)) { throw 'New installation was not collected' }
 $publicShelf = @($shelves.Roots)[1]
-$canonical = Join-Path $publicShelf '测试应用.lnk'
-if (!(Test-Path -LiteralPath $canonical) -or (Test-Path (Join-Path $publicDesk '测试应用.lnk'))) { throw 'Collection left a desktop copy' }
-WriteLink $personalDesk '测试应用.lnk' ''
-$newHash = (Get-FileHash (Join-Path $personalDesk '测试应用.lnk')).Hash
+$canonical = Join-Path $publicShelf 'Sample App.lnk'
+if (!(Test-Path -LiteralPath $canonical) -or (Test-Path (Join-Path $publicDesk 'Sample App.lnk'))) { throw 'Collection left a desktop copy' }
+WriteLink $personalDesk 'Sample App.lnk' ''
+$newHash = (Get-FileHash (Join-Path $personalDesk 'Sample App.lnk')).Hash
 if (!(ReconcileLinks)) { throw 'Reinstalled shortcut was not collected' }
-$backup = Join-Path $statePath '重复快捷方式/个人桌面/测试应用.lnk'
-if ((Get-FileHash $backup).Hash -ne $newHash -or (Test-Path (Join-Path $personalDesk '测试应用.lnk'))) { throw 'Duplicate was not safely archived' }
-WriteLink $personalDesk '测试应用.lnk' '--different-profile'
-if (!(ReconcileLinks) -or !(Test-Path (Join-Path @($shelves.Roots)[0] '测试应用.lnk'))) { throw 'Different launch arguments were merged' }
+$backup = Join-Path $statePath '重复快捷方式/个人桌面/Sample App.lnk'
+if ((Get-FileHash $backup).Hash -ne $newHash -or (Test-Path (Join-Path $personalDesk 'Sample App.lnk'))) { throw 'Duplicate was not safely archived' }
+WriteLink $personalDesk 'Sample App.lnk' '--different-profile'
+if (!(ReconcileLinks) -or !(Test-Path (Join-Path @($shelves.Roots)[0] 'Sample App.lnk'))) { throw 'Different launch arguments were merged' }
 $restoring = [Deskfold.Catalog]::Scan($publicShelf)[0]
 $auto.RememberRestored($restoring)
 $restored = $shelves.Restore($restoring)
 $auto = [Deskfold.DesktopShortcuts]::new([Deskfold.Store]::new($statePath),$shelves)
-if ((ReconcileLinks) -or !(Test-Path $restored) -or !(Test-Path (Join-Path $personalDesk '已有.lnk'))) { throw 'Restore or upgrade preference was lost' }
+if ((ReconcileLinks) -or !(Test-Path $restored) -or !(Test-Path (Join-Path $personalDesk 'Existing.lnk'))) { throw 'Restore or upgrade preference was lost' }
 Write-Output 'PASS: new desktop shortcut collection, reinstall backup, distinct arguments, and explicit restore across restart.'
